@@ -1,0 +1,52 @@
+/* Volunteer Portal Specific Design Tokens */
+
+:root {
+  --v-amber: #f59e0b;
+  --v-amber-dim: rgba(245, 158, 11, 0.1);
+  --v-amber-glow: 0 0 15px rgba(245, 158, 11, 0.4);
+}
+
+/* Mobile-first Shell */
+.volunteer-shell {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-color: var(--bg-main);
+}
+
+/* Touch Targets: 48px minimum for mobile field usage */
+.volunteer-shell button,
+.volunteer-shell a {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+/* Specific Badge Formats */
+.v-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.v-badge-amber {
+  background: var(--v-amber-dim);
+  color: var(--v-amber);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.v-badge-green {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* Responsive Hide */
+@media (max-width: 640px) {
+  .hide-on-mobile {
+    display: none !important;
+  }
+}

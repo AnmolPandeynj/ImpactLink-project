@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, ArrowRight, Loader2, Eye, EyeOff, Zap, Shield, Activity } from 'lucide-react';
 import { signUp, logIn, resetPassword, sendEmailVerification } from '../../services/firebase';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 
 const FEATURES = [
   { icon: Zap, label: 'Gemini AI Engine', desc: 'Real-time intelligence orchestration' },
@@ -9,14 +10,19 @@ const FEATURES = [
   { icon: Shield, label: 'Secure & Encrypted', desc: 'Firebase-grade protection' },
 ];
 
-export default function AuthForm({ type = 'login', onSuccess }) {
+export default function AuthForm({ onSuccess }) {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const intent = searchParams.get('intent') || 'admin';
+  const initialMode = searchParams.get('mode') || 'login';
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [mode, setMode] = useState(type);
+  const [mode, setMode] = useState(initialMode);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -36,6 +42,7 @@ export default function AuthForm({ type = 'login', onSuccess }) {
       } else {
         await logIn(email, password);
         if (onSuccess) onSuccess();
+        else navigate(`/setup?intent=${intent}`);
       }
     } catch (err) {
       setError(err.message.replace('Firebase: ', '').replace(/\(.*\)/, '').trim());
@@ -61,8 +68,10 @@ export default function AuthForm({ type = 'login', onSuccess }) {
 
           <div className="auth-tagline">
             <h2 className="auth-left-title">
-              Command the<br />
-              <span className="auth-left-title-gradient">Humanitarian Grid</span>
+              {intent === 'volunteer' ? 'Join the field' : 'Command the'}<br />
+              <span className="auth-left-title-gradient">
+                {intent === 'volunteer' ? 'Response Team' : 'Humanitarian Grid'}
+              </span>
             </h2>
             <p className="auth-left-desc">
               AI-driven resource allocation for disaster response, field operations, and NGO coordination.
@@ -130,7 +139,7 @@ export default function AuthForm({ type = 'login', onSuccess }) {
                 {isReset ? 'Reset Password' : isLogin ? 'Welcome back' : 'Create account'}
               </h3>
               <p className="auth-form-subtitle">
-                {isReset ? 'Enter your email to receive a reset link.' : isLogin ? 'Access your command center.' : 'Start orchestrating resources today.'}
+                {isReset ? 'Enter your email to receive a reset link.' : isLogin ? (intent==='volunteer' ? 'Access your field portal.' : 'Access your command center.') : 'Start orchestrating resources today.'}
               </p>
             </div>
 
@@ -227,7 +236,7 @@ export default function AuthForm({ type = 'login', onSuccess }) {
                   <Loader2 size={18} className="animate-spin" />
                 ) : (
                   <>
-                    {isReset ? 'Send Reset Link' : isLogin ? 'Access Command Center' : 'Get Started'}
+                    {isReset ? 'Send Reset Link' : isLogin ? (intent === 'volunteer' ? 'Access Portal' : 'Access Command Center') : 'Get Started'}
                     <ArrowRight size={16} />
                   </>
                 )}

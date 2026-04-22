@@ -19,8 +19,6 @@ import { auth, onAuthStateChanged, logout } from '../services/firebase';
 import './LandingPage.css';
 
 export default function LandingPage() {
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [authType, setAuthType] = useState('signup');
   const [currentTourStep, setCurrentTourStep] = useState(-1); // -1 = closed
   const [infoModal, setInfoModal] = useState(null); // 'privacy', 'license', 'about', 'docs', 'faq'
   const [currentUser, setCurrentUser] = useState(null);
@@ -62,14 +60,12 @@ export default function LandingPage() {
     mouseY.set(clientY - top);
   }
 
-  const handleAuthSuccess = () => {
-    setIsAuthOpen(false);
-    navigate('/dashboard');
+  const openAuthAdmin = (type = 'signup') => {
+    navigate(`/auth?intent=admin&mode=${type}`);
   };
 
-  const openAuth = (type) => {
-    setAuthType(type);
-    setIsAuthOpen(true);
+  const openAuthVolunteer = (type = 'signup') => {
+    navigate(`/auth?intent=volunteer&mode=${type}`);
   };
 
   const tourSteps = [
@@ -121,7 +117,7 @@ export default function LandingPage() {
               <button className="dropdown-link" onClick={() => setCurrentTourStep(0)}>
                 <strong>Guided Tour</strong> Walk through the mission logic.
               </button>
-              <button className="dropdown-link" onClick={() => openAuth('signup')}>
+              <button className="dropdown-link" onClick={() => openAuthAdmin()}>
                 <strong>Simulator</strong> Access the AI decision engine.
               </button>
             </div>
@@ -150,8 +146,9 @@ export default function LandingPage() {
             </>
           ) : (
             <>
-              <button onClick={() => openAuth('login')} className="btn-text">Log in</button>
-              <button onClick={() => openAuth('signup')} className="btn-nav-primary">Get Started</button>
+              <button onClick={() => openAuthAdmin('login')} className="btn-text">Admin Login</button>
+              <button onClick={() => openAuthVolunteer('login')} className="btn-text">Volunteer Login</button>
+              <button onClick={() => openAuthAdmin('signup')} className="btn-nav-primary">Command Center</button>
             </>
           )}
         </div>
@@ -193,13 +190,21 @@ export default function LandingPage() {
           </p>
           <div className="hero-ctas" onMouseMove={handleMouseMove}>
             {currentUser ? (
-              <button onClick={() => navigate('/dashboard')} className="btn-hero-primary">
-                Return to Command Center <ArrowRight size={18} />
+              <button onClick={() => navigate('/setup')} className="btn-hero-primary">
+                Return to Dashboard <ArrowRight size={18} />
               </button>
             ) : (
-              <button onClick={() => openAuth('signup')} className="btn-hero-primary">
-                Access the Command Center <ArrowRight size={18} />
-              </button>
+              <>
+                <button onClick={() => openAuthAdmin('signup')} className="btn-hero-primary">
+                  Access Command Center <ArrowRight size={18} />
+                </button>
+                <button onClick={() => openAuthVolunteer('signup')} className="btn-hero-secondary" style={{
+                  background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', padding: '0 1.5rem', borderRadius: '8px',
+                  color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600
+                }}>
+                  Volunteer Portal <ArrowRight size={18} />
+                </button>
+              </>
             )}
             <div className="btn-glow-wrapper group">
               <motion.div
@@ -319,9 +324,9 @@ export default function LandingPage() {
           <div className="footer-col">
             <h4>Product</h4>
             <div className="footer-links">
-              <button className="footer-link" onClick={() => openAuth('signup')}>Features</button>
+              <button className="footer-link" onClick={() => openAuthAdmin('signup')}>Features</button>
               <button className="footer-link" onClick={() => setCurrentTourStep(0)}>Interactive Demo</button>
-              <button className="footer-link" onClick={() => openAuth('signup')}>Simulator</button>
+              <button className="footer-link" onClick={() => openAuthAdmin('signup')}>Simulator</button>
               <button className="footer-link" onClick={() => setInfoModal('docs')}>Integrations</button>
             </div>
           </div>
@@ -366,24 +371,7 @@ export default function LandingPage() {
         </div>
       </footer>
 
-      {/* Auth Modal */}
-      <AnimatePresence>
-        {isAuthOpen && (
-          <div className="auth-overlay">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="auth-modal"
-            >
-              <button onClick={() => setIsAuthOpen(false)} className="close-auth">
-                <X size={20} />
-              </button>
-              <AuthForm type={authType} onSuccess={handleAuthSuccess} />
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+  // Removed inline Auth Modal in favor of /auth route
 
       {/* Info Modals */}
       <AnimatePresence>
@@ -448,7 +436,7 @@ export default function LandingPage() {
                     if (currentTourStep < 3) setCurrentTourStep(prev => prev + 1);
                     else {
                       setCurrentTourStep(-1);
-                      openAuth('signup');
+                      openAuthAdmin('signup');
                     }
                   }}
                 >

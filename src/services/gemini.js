@@ -4,11 +4,32 @@ const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 // The new SDK uses GoogleGenAI and explicitly accepts the apiKey in the constructor options
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
-// Using the newest supported multimodal endpoint
-const MODEL_ID = "gemini-2.5-flash";
+// ── Tiered Model Strategy ─────────────────────────────────────────────────────
+// Flash  → Real-time ETL, field ingestion, per-responder reasoning (low latency, high volume)
+// Pro    → Strategic re-clustering, anomaly detection, alloc advice (5-min cadence, free tier: 2 RPM / 50 RPD)
+const FLASH_MODEL = 'gemini-2.5-flash';
+const PRO_MODEL   = 'gemini-2.5-pro';
+
+// Pro cadence guard — prevent exceeding 2 RPM on free tier
+let _lastProCall = 0;
+const PRO_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
+async function callProModel(contents, config = {}) {
+  const now = Date.now();
+  const timeSinceLastCall = now - _lastProCall;
+  if (timeSinceLastCall < PRO_COOLDOWN_MS) {
+    const waitSec = Math.ceil((PRO_COOLDOWN_MS - timeSinceLastCall) / 1000);
+    throw new Error(
+      `Strategic analysis is rate-limited to every 5 minutes (free tier). Next available in ${waitSec}s.`
+    );
+  }
+  _lastProCall = now;
+  const response = await ai.models.generateContent({ model: PRO_MODEL, contents, ...config });
+  return response;
+}
 
 /**
- * Gemini OCR Layer (Vision)
+ * Gemini OCR Layer (Vision) — Flash
  * Extracts structured JSON from image of a field report.
  */
 export async function extractDataFromReport(imageFile) {
@@ -34,7 +55,7 @@ export async function extractDataFromReport(imageFile) {
     const imageData = await fileToGenerativePart(imageFile);
     
     const response = await ai.models.generateContent({
-      model: MODEL_ID,
+      model: FLASH_MODEL,
       contents: [
         {
           role: "user",
@@ -81,7 +102,7 @@ export async function extractDataFromReport(imageFile) {
 }
 
 /**
- * Gemini Strategic Reasoning Layer
+ * Gemini Strategic Reasoning Layer — Flash (per-incident, fast)
  * Generates tactical advice based on mathematical scores.
  */
 export async function getStrategicAdvice(incidentData, priorityScore) {
@@ -102,7 +123,7 @@ export async function getStrategicAdvice(incidentData, priorityScore) {
 
   try {
     const response = await ai.models.generateContent({
-      model: MODEL_ID,
+      model: FLASH_MODEL,
       contents: prompt
     });
     return response.text;
@@ -113,7 +134,8 @@ export async function getStrategicAdvice(incidentData, priorityScore) {
 }
 
 /**
- * Gemini Strategic Reasoning Layer (Global)
+ * Gemini Strategic Reasoning Layer (Global) → PRO model
+ * Slow-cadence (5-min cooldown). Analyzes all active incidents for macro shifts.
  */
 export async function getGlobalStrategicAdvice(incidents) {
   const incidentSummary = incidents.map(inc => 
@@ -134,19 +156,17 @@ export async function getGlobalStrategicAdvice(incidents) {
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: MODEL_ID,
-      contents: prompt
-    });
+    const response = await callProModel(prompt);
     return response.text;
   } catch (error) {
     console.error("Gemini Global Reasoning Error:", error);
+    if (error.message?.includes('rate-limited')) throw error;
     throw error;
   }
 }
 
 /**
- * Gemini Natural Language Ingestion Layer
+ * Gemini Natural Language Ingestion Layer — Flash
  * Converts a text description into a structured incident object.
  */
 export async function smartParseIncident(text) {
@@ -167,7 +187,7 @@ export async function smartParseIncident(text) {
 
   try {
     const response = await ai.models.generateContent({
-      model: MODEL_ID,
+      model: FLASH_MODEL,
       contents: prompt
     });
     const jsonText = response.text;
@@ -180,19 +200,19 @@ export async function smartParseIncident(text) {
 }
 
 /**
- * Gemini Orchestration Reasoning
+ * Gemini Orchestration Reasoning — Flash
  * Provides a 1-sentence justification for a specific responder match.
  */
 export async function getMatchReasoning(responder, incident) {
   const prompt = `
-    Briefly explain why ${responder.name} is a strong match for this ${incident.needType} incident.
-    Reasoning factors: Reliability (${responder.reliability}), Proximity (${responder.distanceVal.toFixed(1)}km), and Skill (${responder.skill}).
+    Briefly explain why ${responder.name} is a strong match for this ${incident.needType || incident.eventType} incident.
+    Reasoning factors: Performance Score (${responder.performanceScore || 85}%), Proximity (${responder.distanceKm?.toFixed(1) ?? responder.distanceVal?.toFixed(1) ?? '?'}km), and top skill (${responder.topSkill || responder.skill || responder.skills?.[0] || 'General'}).
     Keep it to exactly ONE short, professional sentence.
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: MODEL_ID,
+      model: FLASH_MODEL,
       contents: prompt
     });
     return response.text.trim();
@@ -202,14 +222,14 @@ export async function getMatchReasoning(responder, incident) {
 }
 
 /**
- * Gemini Impact Simulation
+ * Gemini Impact Simulation — Flash
  * Projects the outcome of assigning N volunteers to an incident.
  */
 export async function getImpactSimulation(incident, volunteerCount) {
   const prompt = `
     Analyze the impact of deploying ${volunteerCount} volunteers to this disaster incident in India:
     Location: ${incident.location}
-    Type: ${incident.needType}
+    Type: ${incident.needType || incident.eventType}
     Current Severity: ${incident.severity}/10
     Current Resource Gap: ${incident.resourceGap}/10
 
@@ -223,7 +243,7 @@ export async function getImpactSimulation(incident, volunteerCount) {
 
   try {
     const response = await ai.models.generateContent({
-      model: MODEL_ID,
+      model: FLASH_MODEL,
       contents: prompt
     });
     const jsonMatch = response.text.match(/\{.*\}/s);
@@ -235,9 +255,8 @@ export async function getImpactSimulation(incident, volunteerCount) {
 }
 
 /**
- * Gemini Temporal Orchestration
+ * Gemini Temporal Orchestration — Flash
  * Converts natural language description into structured mission phases and dates.
- * Designed to be highly inferential: even vague input results in a logical fallback timeline.
  */
 export async function generateTimelinePhases(description) {
   const prompt = `
@@ -266,7 +285,7 @@ export async function generateTimelinePhases(description) {
 
   try {
     const response = await ai.models.generateContent({
-      model: MODEL_ID,
+      model: FLASH_MODEL,
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -296,8 +315,8 @@ export async function generateTimelinePhases(description) {
 }
 
 /**
- * AI Insight: Network Anomaly Detection
- * Analyzes DBSCAN clusters to find anomalies, critical imbalances, or infrastructure gaps.
+ * AI Insight: Network Anomaly Detection → PRO model
+ * Slow-cadence. Manually triggered. Analyzes DBSCAN clusters for anomalies.
  */
 export async function getNetworkAnomalyAnalysis(clusters) {
   const hotspotDesc = clusters.map(c => 
@@ -318,23 +337,61 @@ export async function getNetworkAnomalyAnalysis(clusters) {
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: MODEL_ID,
-      contents: prompt
-    });
+    const response = await callProModel(prompt);
     return response.text;
   } catch (error) {
     console.error("Gemini Anomaly Detection Error:", error);
     
-    if (error.message && (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED') || error.message.includes('quota'))) {
-      return "Network Scan Paused.\nFree tier API rate limit reached. Please wait 30 seconds before rescanning.";
+    if (error.message?.includes('rate-limited')) {
+      return `Network Scan Paused.\n${error.message}`;
     }
-    
+    if (error.message && (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED') || error.message.includes('quota'))) {
+      return "Network Scan Paused.\nFree tier API rate limit reached. Please wait 5 minutes before rescanning.";
+    }
     if (error.message && error.message.includes('503')) {
-      return "Cloud Engine Overloaded.\nGoogle's Gemini 1.5 Flash models are currently experiencing high global demand. Please try scanning again shortly.";
+      return "Cloud Engine Overloaded.\nGoogle's Gemini Pro models are currently experiencing high global demand. Please try scanning again shortly.";
     }
 
     return "Network Integrity Unknown.\nFailed to fetch live AI anomaly scan due to regional API latency.";
+  }
+}
+
+/**
+ * AI Strategic Reallocation Advice → PRO model
+ * Called once after runAllocation() completes.
+ * Provides macro-level strategic shifts based on engine output.
+ */
+export async function getStrategicReallocationAdvice(allocationResult) {
+  const { assignments = [], dispatches = [], criticalUnmet = [] } = allocationResult;
+  const unmetDesc = criticalUnmet.map(m =>
+    `${m.location || m.eventType} (Sev: ${m.severity}, Gap: ${m.resourceGap})`
+  ).join('\n') || 'None';
+
+  const prompt = `
+    You are the ImpactLink Strategic AI reviewing the output of our two-pass allocation engine.
+
+    Allocation Results:
+    - Resident assignments (Pass 1): ${assignments.length}
+    - Mobile dispatches (Pass 2): ${dispatches.length}
+    - Critical Unmet Missions (no coverage found): ${criticalUnmet.length}
+
+    Unmet Mission Details:
+    ${unmetDesc}
+
+    Task:
+    1. In 2 sentences, assess the overall allocation health.
+    2. Recommend ONE specific macro-level lateral shift to address the most critical unmet mission.
+    3. Flag if volunteer density is insufficient at any hub (infer from unmet count).
+    Keep advice sharp and operational.
+  `;
+
+  try {
+    const response = await callProModel(prompt);
+    return response.text;
+  } catch (error) {
+    console.error('Gemini Reallocation Advice Error:', error);
+    if (error.message?.includes('rate-limited')) throw error;
+    return 'Strategic advisory unavailable. Review critical-unmet panel manually.';
   }
 }
 

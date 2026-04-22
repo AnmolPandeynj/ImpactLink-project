@@ -1,28 +1,79 @@
 /**
  * ImpactLink Priority Scoring Engine (Deterministic Layer)
- * 
- * Formula:
- * Priority Score = (Severity × 0.4) + (Frequency × 0.2) + (Gap × 0.3) + (Time × 0.1)
- * 
+ *
+ * Base formula (used for static display & strategic hub ranking):
+ *   Priority Score = (Severity × 0.4) + (Frequency × 0.2) + (Gap × 0.3) + (Time × 0.1)
+ *
+ * Allocation formula (time-aware, used by the two-pass engine):
+ *   urgency_decay = exp(-0.005 × hours_old)   // half-life ≈ 5.75 days
+ *   adjusted = (raw × 0.7) + (raw × decay × 0.3)
+ *
  * Inputs are 1-10 scales. Output is 1-10.
  */
 
+const DECAY_LAMBDA = 0.005; // e^(-λt), half-life ≈ 138 hours (5.75 days)
+
+/**
+ * Compute how much urgency decay has occurred since creation.
+ * Returns 1.0 for brand-new incidents, approaches 0.0 for very old ones.
+ * @param {string|Date} createdAt
+ * @returns {number} decay factor 0.0–1.0
+ */
+export const getUrgencyDecay = (createdAt) => {
+  if (!createdAt) return 1.0;
+  const hoursOld = Math.max(0, (Date.now() - new Date(createdAt).getTime()) / 3600000);
+  return parseFloat(Math.exp(-DECAY_LAMBDA * hoursOld).toFixed(4));
+};
+
+/**
+ * Original flat-weight priority score (used for UI display, strategic hub ranking).
+ * Does NOT apply time decay — used where stable ordering is preferred.
+ */
 export const calculatePriorityScore = (data) => {
-  const { 
-    severity = 5, 
-    frequency = 5, 
-    resourceGap = 5, 
-    timeSensitivity = 5 
+  const {
+    severity = 5,
+    frequency = 5,
+    resourceGap = 5,
+    timeSensitivity = 5
   } = data;
 
   const score = (
-    (severity * 0.4) + 
-    (frequency * 0.2) + 
-    (resourceGap * 0.3) + 
+    (severity * 0.4) +
+    (frequency * 0.2) +
+    (resourceGap * 0.3) +
     (timeSensitivity * 0.1)
   );
 
   return parseFloat(score.toFixed(2));
+};
+
+/**
+ * Time-decayed priority score for allocation queue ordering.
+ * Fresh incidents of equal severity outrank stale ones.
+ * Formula: (raw × 0.7) + (raw × decay × 0.3)
+ *
+ * @param {object} data - { severity, frequency, resourceGap, timeSensitivity }
+ * @param {string|Date} createdAt - Incident creation timestamp
+ * @returns {number} Decayed score (same 1-10 scale, but time-modulated)
+ */
+export const calculateDecayedPriorityScore = (data, createdAt) => {
+  const {
+    severity = 5,
+    frequency = 5,
+    resourceGap = 5,
+    timeSensitivity = 5,
+  } = data;
+
+  const rawScore = (
+    (severity * 0.35) +
+    (frequency * 0.175) +
+    (resourceGap * 0.30) +
+    (timeSensitivity * 0.125) +
+    0.05  // small base to keep zero-input missions above zero
+  );
+
+  const decayFactor = getUrgencyDecay(createdAt);
+  return parseFloat(((rawScore * 0.7) + (rawScore * decayFactor * 0.3)).toFixed(2));
 };
 
 export const calculateMisallocationScore = (incident) => {

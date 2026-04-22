@@ -166,3 +166,66 @@ export const bulkIngest = async (data) => {
   if (!res.ok) throw new Error(`Bulk ingestion failed: ${res.status}`);
   return res.json();
 };
+
+// ─── Two-Pass Allocation Engine ───────────────────────────────────────────
+
+/**
+ * Trigger a full two-pass resident + mobile allocation run.
+ * Returns assignment results, dispatch list, and critical-unmet missions.
+ * @param {string|null} projectId
+ */
+export const runAllocation = async (projectId = null) => {
+  const url = projectId
+    ? `${API_BASE_URL}/api/allocate?projectId=${projectId}`
+    : `${API_BASE_URL}/api/allocate`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: await getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Allocation failed: ${res.status}`);
+  }
+  return res.json();
+};
+
+/**
+ * Get the latest allocation run result and running state.
+ */
+export const fetchAllocationStatus = async () => {
+  const res = await fetch(`${API_BASE_URL}/api/allocation/status`);
+  if (!res.ok) throw new Error(`Failed to fetch allocation status: ${res.status}`);
+  return res.json();
+};
+
+/**
+ * Get all missions that could not be covered by any mobile unit.
+ */
+export const fetchCriticalUnmet = async (projectId = null) => {
+  const url = projectId
+    ? `${API_BASE_URL}/api/allocation/critical-unmet?projectId=${projectId}`
+    : `${API_BASE_URL}/api/allocation/critical-unmet`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch critical-unmet: ${res.status}`);
+  return res.json();
+};
+
+/**
+ * Force a re-run of the allocation engine (e.g. after a severity spike).
+ * Resets critical_unmet missions back into the queue first.
+ * @param {string|null} projectId
+ */
+export const rerunAllocation = async (projectId = null) => {
+  const url = projectId
+    ? `${API_BASE_URL}/api/allocation/rerun?projectId=${projectId}`
+    : `${API_BASE_URL}/api/allocation/rerun`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: await getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Rerun failed: ${res.status}`);
+  }
+  return res.json();
+};

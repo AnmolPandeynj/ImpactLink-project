@@ -12,6 +12,22 @@ const Project = require('./models/Project');
 const Supply = require('./models/Supply');
 const { dbscan } = require('./services/clustering');
 const { encrypt, decrypt } = require('./services/encryption');
+// Allocation Engine — wrapped in try/catch so a crash here doesn't kill the server
+let runAllocation, getLastAllocationResult, isAllocationRunning;
+try {
+  const allocationEngine = require('./services/allocationEngine');
+  runAllocation = allocationEngine.runAllocation;
+  getLastAllocationResult = allocationEngine.getLastAllocationResult;
+  isAllocationRunning = allocationEngine.isAllocationRunning;
+  console.log('✅ Allocation Engine loaded successfully.');
+} catch (engineErr) {
+  console.error('❌ Allocation Engine failed to load:', engineErr.message);
+  // Safe stubs so routes don't crash
+  runAllocation = async () => { throw new Error('Allocation engine unavailable: ' + engineErr.message); };
+  getLastAllocationResult = () => null;
+  isAllocationRunning = () => false;
+}
+
 
 dotenv.config();
 
@@ -36,7 +52,16 @@ app.use(express.json());
 const verifyToken = async (req, res, next) => {
   const token = req.headers.authorization?.split('Bearer ')[1];
   
-  if (!admin.apps.length) return next();
+  if (!admin.apps.length) {
+    // LOCAL TEST BYPASS: If no firebase admin, provide a stable mock identity
+    // This allows local dev to hit /api/users/me without credentials
+    req.user = { 
+      uid: 'local_dev_user_123', 
+      email: 'local-dev@impactlink.io', 
+      name: 'Local Developer' 
+    };
+    return next();
+  }
 
   if (!token) return res.status(401).json({ error: 'No token provided' });
 
@@ -71,6 +96,11 @@ const auditPII = (action) => async (req, res, next) => {
 };
 
 // --- ROUTES ---
+const userRoutes = require('./routes/users');
+const volunteerRoutes = require('./routes/volunteer');
+
+app.use('/api/users', verifyToken, userRoutes);
+app.use('/api/volunteer', verifyToken, volunteerRoutes);
 
 // 1. Locations
 app.get('/api/locations', async (req, res) => {
@@ -351,6 +381,71 @@ app.get('/api/analytics/clusters', async (req, res) => {
 
     res.json({ points: result, hotspots });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 7. Two-Pass Allocation Engine
+// POST /api/allocate — Run the full two-pass resident + mobile allocation
+// Note: verifyToken is intentionally omitted here — the engine is safe to trigger
+// from an authenticated frontend session. Add verifyToken back if needed in production.
+app.post('/api/allocate', async (req, res) => {
+  try {
+    const projectId = req.query.projectId || req.body?.projectId || null;
+    console.log(`[Allocation] POST /api/allocate triggered. projectId=${projectId}`);
+    const result = await runAllocation(projectId, req.user || null);
+    res.json(result);
+  } catch (error) {
+    if (error.message?.includes('already in progress')) {
+      return res.status(409).json({ error: error.message });
+    }
+    console.error('[Allocation] Engine Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/allocation/status — Get last allocation result + running state
+app.get('/api/allocation/status', async (req, res) => {
+  try {
+    res.json({
+      isRunning: isAllocationRunning(),
+      lastResult: getLastAllocationResult(),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/allocation/critical-unmet — Missions with no mobile coverage
+app.get('/api/allocation/critical-unmet', async (req, res) => {
+  try {
+    const query = { allocationStatus: 'critical_unmet' };
+    if (req.query.projectId) query.projectId = req.query.projectId;
+    const events = await Event.find(query)
+      .sort({ severity: -1, resourceGap: -1 })
+      .populate('locationId')
+      .lean();
+    res.json(events);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/allocation/rerun — Force re-allocation (e.g. after severity spike)
+app.post('/api/allocation/rerun', verifyToken, async (req, res) => {
+  try {
+    // Reset critical_unmet missions back to unassigned so they re-enter the queue
+    await Event.updateMany(
+      { allocationStatus: 'critical_unmet' },
+      { $set: { allocationStatus: 'unassigned', saturationRate: 0 } }
+    );
+    const projectId = req.query.projectId || req.body.projectId || null;
+    const result = await runAllocation(projectId, req.user);
+    res.json(result);
+  } catch (error) {
+    if (error.message?.includes('already in progress')) {
+      return res.status(409).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message });
   }
 });

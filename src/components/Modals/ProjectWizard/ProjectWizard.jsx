@@ -182,6 +182,22 @@ export default function ProjectWizard({ onClose, initialData = null }) {
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {isEditMode && (
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="btn-primary"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)',
+                color: 'var(--success)', padding: '0.4rem 0.75rem', borderRadius: '6px',
+                fontSize: '0.75rem', fontWeight: 600, cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s', height: 'fit-content'
+              }}
+            >
+              {isSubmitting ? 'Updating...' : 'Update Strategy'}
+            </button>
+          )}
           <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <LifeBuoy size={14} /> Documentation & Standards
           </div>

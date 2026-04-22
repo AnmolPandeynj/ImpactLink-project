@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { MoveRight, AlertCircle, CheckCircle2, TrendingDown } from 'lucide-react';
 import { getSectorHealthStatus, getTopActiveHubs } from '../../services/logic';
 
-export default function RedeploymentStrategy({ incidents, volunteers }) {
+export default function RedeploymentStrategy({ incidents, volunteers, allocationResult }) {
   const activeHubs = getTopActiveHubs(incidents);
   
   const hubStatuses = activeHubs.map(h => ({
@@ -14,12 +14,17 @@ export default function RedeploymentStrategy({ incidents, volunteers }) {
   const targets = hubStatuses.filter(s => s.label === 'CRITICAL' || s.label === 'UNSTABLE');
   const sources = hubStatuses.filter(s => s.label === 'NOMINAL' || s.label === 'STABLE');
 
-  // Logic: Pair the healthiest sources with the most critical targets
   const shifts = targets.map((t, idx) => {
     if (sources.length === 0) return null;
     const s = sources[idx % sources.length];
     return { target: t, source: s };
   }).filter(Boolean);
+
+  // Real data from allocation engine if available
+  const allocationEfficiencyGain = allocationResult
+    ? `${allocationResult.pass1?.assignments || 0} resident + ${allocationResult.pass2?.dispatches || 0} mobile dispatches`
+    : null;
+  const unmetCount = allocationResult?.pass2?.criticalUnmet || 0;
 
   return (
     <div className="pane" style={{ padding: '2rem', flex: 1, minHeight: '350px', background: 'var(--bg-pane)' }}>
@@ -80,7 +85,11 @@ export default function RedeploymentStrategy({ incidents, volunteers }) {
       {shifts.length > 0 && (
         <div style={{ marginTop: '2rem', padding: '1rem 1.5rem', background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.1)', borderRadius: '8px' }}>
            <p style={{ fontSize: '0.75rem', color: 'rgba(56, 189, 248, 0.8)', lineHeight: '1.6', margin: 0 }}>
-             <span style={{ fontWeight: 800 }}>ORCHESTRATION ADVISORY:</span> AI detected a resource variance across {shifts.length} key hubs. Initiating lateral shifts from stable zones will maximize volunteer impact by {Math.random() > 0.5 ? '24%' : '31%'} without increasing logistical overhead.
+             <span style={{ fontWeight: 800 }}>ORCHESTRATION ADVISORY:</span>{' '}
+             {allocationEfficiencyGain
+               ? `Engine completed: ${allocationEfficiencyGain}. ${unmetCount > 0 ? `${unmetCount} mission(s) remain unmet — escalate to Strategic Missions panel.` : 'All gaps addressed.'}`
+               : `AI detected a resource variance across ${shifts.length} key hubs. Initiating lateral shifts from stable zones will maximize volunteer impact without increasing logistical overhead.`
+             }
            </p>
         </div>
       )}

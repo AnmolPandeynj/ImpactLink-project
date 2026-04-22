@@ -40,8 +40,10 @@ import RedeploymentStrategy from '../components/Radar/RedeploymentStrategy';
 import NewIncidentModal from '../components/Modals/NewIncidentModal';
 import WorkspaceModal from '../components/Modals/WorkspaceModal';
 import ProjectWizard from '../components/Modals/ProjectWizard/ProjectWizard';
-import { extractDataFromReport, getNetworkAnomalyAnalysis } from '../services/gemini';
-import { getSectorHealthStatus, getStrategicMissions } from '../services/logic';
+import { extractDataFromReport, getNetworkAnomalyAnalysis, getStrategicReallocationAdvice } from '../services/gemini';
+import { getSectorHealthStatus, getStrategicMissions, getUrgencyDecay } from '../services/logic';
+import { runAllocation, fetchCriticalUnmet, rerunAllocation } from '../services/api';
+
 import { logout } from '../services/firebase';
 import { resolveCoordinates } from '../services/coordinates';
 import * as api from '../services/api';
@@ -154,6 +156,11 @@ export default function Dashboard() {
   const [isVolunteerDetailOpen, setIsVolunteerDetailOpen] = useState(false);
   const [isProjectWizardOpen, setIsProjectWizardOpen] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
+  const [allocationResult, setAllocationResult] = useState(null);
+  const [isAllocating, setIsAllocating] = useState(false);
+  const [criticalUnmet, setCriticalUnmet] = useState([]);
+  const [allocationAdvice, setAllocationAdvice] = useState('');
+
 
   const { refreshProjects, switchProject } = useProject();
 
@@ -191,13 +198,21 @@ export default function Dashboard() {
     }
   };
 
-  // Computed metrics
+  // Allocation efficiency: prefer saturationRate from DB if available, else fallback to gap calc
   const allocationEfficiency = useMemo(() => {
     if (incidents.length === 0) return 100;
+    const incidentsWithSaturation = incidents.filter(inc => inc.saturationRate !== undefined && inc.saturationRate > 0);
+    if (incidentsWithSaturation.length > 0) {
+      // Engine-produced efficiency: average saturation across all incidents
+      const avgSaturation = incidentsWithSaturation.reduce((sum, inc) => sum + (inc.saturationRate || 0), 0) / incidents.length;
+      return (avgSaturation * 100).toFixed(1);
+    }
+    // Fallback: gap-based estimate (pre-engine-run)
     const totalGap = incidents.reduce((sum, inc) => sum + (inc.resourceGap || 5), 0);
     const maxGap = incidents.length * 10;
     return (((maxGap - totalGap) / maxGap) * 100).toFixed(1);
   }, [incidents]);
+
 
   // Reactive Strategic Clustering (separate from heatmap)
   const strategicClusters = useMemo(() => {
@@ -231,7 +246,34 @@ export default function Dashboard() {
     }
   };
 
+  const handleRunAllocation = async () => {
+    if (isAllocating) return;
+    setIsAllocating(true);
+    setAllocationAdvice('');
+    try {
+      const projectId = currentProject?._id;
+      const result = await runAllocation(projectId);
+      setAllocationResult(result);
+      // Refresh incidents to get updated saturationRate
+      const updatedIncidents = await api.fetchIncidents(projectId);
+      setIncidents(updatedIncidents);
+      // Fetch critical unmet missions
+      const unmet = await fetchCriticalUnmet(projectId);
+      setCriticalUnmet(unmet);
+      // Async: get Pro strategic advice (non-blocking, may rate-limit)
+      getStrategicReallocationAdvice(result)
+        .then(setAllocationAdvice)
+        .catch(err => setAllocationAdvice(err.message?.includes('rate-limited') ? err.message : ''));
+    } catch (error) {
+      console.error('Allocation failed:', error);
+      alert(`Allocation error: ${error.message}`);
+    } finally {
+      setIsAllocating(false);
+    }
+  };
+
   const handleDispatch = async (incidentId, volunteerCount) => {
+
     const dispatchId = Date.now();
     setActiveDispatches(prev => [...prev, { id: dispatchId, targetId: incidentId, volunteers: volunteerCount }]);
     
@@ -427,6 +469,24 @@ export default function Dashboard() {
             <Settings size={14} /> Workspace
           </button>
           
+          {/* Run Allocation Engine */}
+          <button
+            onClick={handleRunAllocation}
+            disabled={isAllocating}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              fontSize: '0.8125rem', padding: '0.5rem 1rem', borderRadius: '8px',
+              border: `1px solid ${isAllocating ? 'rgba(251,146,60,0.4)' : allocationResult ? 'rgba(16,185,129,0.4)' : 'rgba(56,189,248,0.3)'}`,
+              background: isAllocating ? 'rgba(251,146,60,0.08)' : allocationResult ? 'rgba(16,185,129,0.08)' : 'rgba(56,189,248,0.08)',
+              color: isAllocating ? 'var(--warning)' : allocationResult ? 'var(--success)' : '#38bdf8',
+              cursor: isAllocating ? 'not-allowed' : 'pointer',
+              fontWeight: 600, whiteSpace: 'nowrap', transition: 'all 0.2s'
+            }}
+          >
+            <Zap size={14} />
+            {isAllocating ? 'Allocating...' : allocationResult ? `Allocated · ${allocationResult.pass1?.assignments + allocationResult.pass2?.dispatches}` : 'Run Allocation'}
+          </button>
+
           <button 
             className="btn-primary" 
             onClick={() => setIsNewIncidentOpen(true)}
@@ -434,6 +494,7 @@ export default function Dashboard() {
           >
             <Plus size={14} /> Incident
           </button>
+
           
           <button 
             onClick={handleLogout}
@@ -492,6 +553,9 @@ export default function Dashboard() {
                 onDispatch={handleDispatch}
                 allocationEfficiency={allocationEfficiency}
                 viewMode={viewMode}
+                allocationResult={allocationResult}
+                criticalUnmet={criticalUnmet}
+                allocationAdvice={allocationAdvice}
               />
             )}
             {activeTab === 'analysis' && <AnalysisTab incidents={incidents} volunteers={volunteers} />}
@@ -581,12 +645,64 @@ export default function Dashboard() {
   );
 }
 
-function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispatches, clusters, onDispatch, allocationEfficiency, viewMode, volunteers }) {
+function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispatches, clusters, onDispatch, allocationEfficiency, viewMode, volunteers, allocationResult, criticalUnmet = [], allocationAdvice }) {
   const [selectedMission, setSelectedMission] = useState(null);
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [isDrillingDown, setIsDrillingDown] = useState(false);
 
   const missions = getStrategicMissions(incidents);
+
+  // Critical Unmet Alert Panel — surface missions with no coverage
+  const renderCriticalUnmetPanel = () => {
+    if (!criticalUnmet || criticalUnmet.length === 0) return null;
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        style={{
+          marginBottom: '1.5rem',
+          background: 'rgba(239, 68, 68, 0.06)',
+          border: '1px solid rgba(239, 68, 68, 0.25)',
+          borderRadius: '10px',
+          padding: '1.25rem 1.5rem',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+          <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--error)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <ShieldCheck size={13} />
+            Strategic Missions Panel — {criticalUnmet.length} Critical Unmet
+          </div>
+          <span style={{ fontSize: '0.625rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>No mobile coverage found</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {criticalUnmet.slice(0, 5).map((m, idx) => {
+            const decay = getUrgencyDecay(m.createdAt || m.eventTime);
+            return (
+              <div key={m._id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(239,68,68,0.04)', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.12)' }}>
+                <div>
+                  <span style={{ fontSize: '0.8125rem', color: '#fff', fontWeight: 600 }}>{m.location || m.title || m.eventType}</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginLeft: '0.75rem' }}>Sev {m.severity} · Gap {m.resourceGap}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {/* Urgency decay badge */}
+                  <span style={{ fontSize: '0.625rem', fontFamily: 'monospace', padding: '0.15rem 0.35rem', borderRadius: '3px', background: decay < 0.6 ? 'rgba(251,146,60,0.15)' : 'rgba(16,185,129,0.1)', color: decay < 0.6 ? 'var(--warning)' : 'var(--success)' }}>
+                    ⏱ {(decay * 100).toFixed(0)}%
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--error)', fontWeight: 700 }}>ESCALATE</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {allocationAdvice && (
+          <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'rgba(56,189,248,0.03)', border: '1px solid rgba(56,189,248,0.12)', borderRadius: '6px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.6 }}>
+            <span style={{ color: '#38bdf8', fontWeight: 700, textTransform: 'uppercase', marginRight: '0.5rem' }}>Strategic AI:</span>
+            {allocationAdvice}
+          </div>
+        )}
+      </motion.div>
+    );
+  };
 
   const renderStats = (isImmersive) => (
     <div style={{ display: 'flex', gap: isImmersive ? '3rem' : '4rem', alignItems: 'center' }}>
@@ -831,6 +947,13 @@ function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispa
           {renderStats(true)}
         </div>
 
+        {/* Critical Unmet Alert (immersive — bottom-left floating) */}
+        {criticalUnmet.length > 0 && (
+          <div style={{ position: 'absolute', bottom: '2rem', left: '0', pointerEvents: 'auto', maxWidth: '380px' }}>
+            {renderCriticalUnmetPanel()}
+          </div>
+        )}
+
         {/* Floating Queue Sidebar */}
         <div style={{ position: 'absolute', top: '2rem', right: '0', bottom: '2rem', width: '420px', pointerEvents: 'auto', background: 'rgba(25, 25, 25, 0.4)', backdropFilter: 'blur(32px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '-8px 16px 40px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
           {renderPriorityQueue(true)}
@@ -841,6 +964,11 @@ function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispa
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '1px', background: 'var(--border-subtle)', border: '1px solid var(--border-subtle)', borderRadius: '8px', overflow: 'hidden' }}>
+      {renderCriticalUnmetPanel() && (
+        <div style={{ gridColumn: 'span 12', padding: '1.5rem 2rem 0' }}>
+          {renderCriticalUnmetPanel()}
+        </div>
+      )}
       <div className="pane" style={{ gridColumn: 'span 12', padding: '1.5rem 2rem' }}>
         {renderStats(false)}
       </div>
