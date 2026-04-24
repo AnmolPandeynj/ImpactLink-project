@@ -1,18 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence, useMotionTemplate, useMotionValue } from 'framer-motion';
-import { 
-  Zap, 
-  Activity, 
-  Target, 
-  Cpu, 
-  ArrowRight, 
-  CheckCircle2, 
-  ShieldCheck, 
-  Globe,
-  Database,
-  BarChart3,
-  X
-} from 'lucide-react';
+import { motion, AnimatePresence, useMotionTemplate, useMotionValue, useScroll, useTransform } from 'framer-motion';
+import { Zap, Users, Globe, Database, Cpu, Activity, ShieldCheck, Target, BarChart3, X, Sparkles, Lightbulb, ArrowRight, CheckCircle2 } from 'lucide-react';
+
 import { useNavigate } from 'react-router-dom';
 import useAuth from '../hooks/useAuth';
 import { logout } from '../services/firebase';
@@ -167,52 +156,86 @@ export default function LandingPage() {
       {/* Hero Section */}
       <header className="hero-section">
         <motion.div 
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
           className="hero-content"
         >
-          <div className="badge">
+          <motion.div 
+            className="badge"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.1, duration: 0.6 }}
+          >
             <span className="dot" /> Now active for Google Solutions Hackathon
-          </div>
-          <h1 className="hero-main-title">
+          </motion.div>
+          <motion.h1 
+            className="hero-main-title"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, duration: 0.8 }}
+          >
             Extreme Orchestration <br />
             <span>for Smart Resource Allocation</span>
-          </h1>
-          <p className="hero-main-subtitle">
+          </motion.h1>
+          <motion.p 
+            className="hero-main-subtitle"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3, duration: 0.8 }}
+          >
             Eliminating resource misallocation through AI-driven visibility. <br />
             The intelligence layer for localized disaster response.
-          </p>
+          </motion.p>
           <div className="hero-ctas" onMouseMove={handleMouseMove}>
             {firebaseUser ? (
-              <button 
+              <motion.button 
                 onClick={() => navigate(appUser?.role === 'Volunteer' ? '/volunteer' : '/dashboard')} 
                 className="btn-hero-primary"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.5, duration: 0.6 }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
               >
                 Return to Mission <ArrowRight size={18} />
-              </button>
+              </motion.button>
             ) : (
-              <div style={{ display: 'flex', gap: '1.5rem', width: '100%', justifyContent: 'center' }}>
-                <button 
+              <motion.div 
+                style={{ display: 'flex', gap: '1.5rem', width: '100%', justifyContent: 'center' }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.5, duration: 0.6 }}
+              >
+                <motion.button 
                   onClick={() => navigate('/auth?intent=admin')} 
                   style={{ flex: 1, maxWidth: '280px' }}
                   className="btn-hero-primary"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                 >
                   Command Control <ArrowRight size={18} />
-                </button>
-                <button 
+                </motion.button>
+                <motion.button 
                   onClick={() => navigate('/auth?intent=volunteer')} 
                   style={{ 
                     flex: 1, maxWidth: '280px', background: 'transparent', 
-                    border: '1px solid rgba(255,255,255,0.1)', color: '#fff' 
+                    border: '1px solid rgba(255,255,255,0.2)', color: '#fff' 
                   }}
                   className="btn-hero-primary"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                 >
                   Volunteer Portal <Zap size={18} style={{ marginLeft: '8px' }} />
-                </button>
-              </div>
+                </motion.button>
+              </motion.div>
             )}
-            <div className="btn-glow-wrapper group">
+            <motion.div 
+              className="btn-glow-wrapper group"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.6, duration: 0.6 }}
+            >
               <motion.div
                 className="btn-glow-effect"
                 style={{
@@ -225,109 +248,312 @@ export default function LandingPage() {
                   `,
                 }}
               />
-              <button 
+              <motion.button 
                 onClick={() => setCurrentTourStep(0)} 
                 className="btn btn-interactive-demo"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
               >
                 Interactive Demo
-              </button>
-            </div>
+              </motion.button>
+            </motion.div>
           </div>
         </motion.div>
 
         {/* Live Visualizer Section */}
         <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.3, duration: 1 }}
+          initial={{ opacity: 0, scale: 0.9, y: 40 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ delay: 0.5, duration: 1, ease: "easeOut" }}
           className="visualizer-container"
         >
-          <div className="visualizer-border">
+          <motion.div 
+            className="visualizer-border"
+            whileHover={{ scale: 1.02 }}
+            transition={{ duration: 0.4 }}
+          >
             <LiveVisualizer />
-          </div>
+          </motion.div>
         </motion.div>
       </header>
 
-      {/* Feature Grid */}
-      <section className="features-section">
-        <div className="section-label">Capabilities</div>
-        <h2 className="section-title">Built for immediate tactical impact.</h2>
+      {/* Capabilities */}
+      <section className="features-section" id="capabilities">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          viewport={{ once: true, margin: "-100px" }}
+          style={{ textAlign: 'center', marginBottom: '5rem' }}
+        >
+          <div className="section-label">Enterprise Architecture</div>
+          <h2 className="section-title">Orchestrating Humanitarian Logistics at Scale.</h2>
+          <p className="section-subtitle">
+            ImpactLink combines real-time data ingestion with strategic AI reasoning to solve the "Last Mile" problem in disaster relief.
+          </p>
+        </motion.div>
         
         <div className="features-grid">
-          <FeatureCard 
-            icon={<Target size={24} color="#6366f1" />}
-            title="Localized Ingestion"
-            description="Gemini-powered parsing of hand-written reports, photos, and unstructured field notes."
-          />
-          <FeatureCard 
-            icon={<Activity size={24} color="#0ea5e9" />}
-            title="Divergence Detection"
-            description="Our priority engine identifies where resources are being sent vs. where they are actually needed."
-          />
-          <FeatureCard 
-            icon={<Cpu size={24} color="#a855f7" />}
-            title="Simulated Impact"
-            description="Test the outcome of resource shifts before deployment using our AI-driven decision engine."
-          />
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0 }}
+            viewport={{ once: true, margin: "-100px" }}
+          >
+            <FeatureCard 
+              icon={<Database size={24} />}
+              color="#6366f1"
+              title="Multimodal Field Ingestion"
+              description="Convert paper surveys, WhatsApp voice notes, and damage photos into structured missions using Gemini 1.5 Flash's multimodal reasoning."
+              tags={["ZERO DATA LOSS", "GEMINI 1.5"]}
+            />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.1 }}
+            viewport={{ once: true, margin: "-100px" }}
+          >
+            <FeatureCard 
+              icon={<Activity size={24} />}
+              color="#0ea5e9"
+              title="Dual-Pass Allocation Engine"
+              description="Maximize resident-first greedy assignments followed by mobile-fleet dispatch to ensure 100% of critical sectors are covered by optimal responders."
+              tags={["OPTIMAL MATCH", "DETERMINISTIC"]}
+            />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            viewport={{ once: true, margin: "-100px" }}
+          >
+            <FeatureCard 
+              icon={<Zap size={24} />}
+              color="#f59e0b"
+              title="Dynamic Urgency Decay"
+              description="Algorithmic prioritization that accounts for temporal decay—automatically escalating stale missions to prevent 'silent' humanitarian crises."
+              tags={["TEMPORAL PRIORITY", "REAL-TIME"]}
+            />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            viewport={{ once: true, margin: "-100px" }}
+          >
+            <FeatureCard 
+              icon={<Cpu size={24} />}
+              color="#10b981"
+              title="Temporal Orchestration"
+              description="AI-assisted timeline planning that infers logistical bottlenecks, creating adaptive mission paths that respond to real-world deployment delays."
+              tags={["ADAPTIVE LOGISTICS", "AI-PLANNER"]}
+            />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.4 }}
+            viewport={{ once: true, margin: "-100px" }}
+          >
+            <FeatureCard 
+              icon={<Users size={24} />}
+              color="#ec4899"
+              title="Semantic Skill Mapping"
+              description="Match responders to missions based on semantic skill depth (e.g., Trauma vs First Aid) using vector-based AI embeddings instead of keywords."
+              tags={["AI-MATCHING", "EMBEDDINGS"]}
+            />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.5 }}
+            viewport={{ once: true, margin: "-100px" }}
+          >
+            <FeatureCard 
+              icon={<Globe size={24} />}
+              color="#3b82f6"
+              title="Fleet-Sync Coordination"
+              description="Cross-fleet intelligence that synchronizes multiple NGO logistics, ensuring aid isn't duplicated in easy-to-reach zones while remote areas suffer."
+              tags={["ZERO REDUNDANCY", "MULTI-NGO"]}
+            />
+          </motion.div>
         </div>
       </section>
 
-      {/* How it Works / Process */}
+      {/* The Gemini Edge - New Section */}
+      <section className="gemini-edge-section">
+        <div className="edge-container">
+          <div className="edge-visual">
+            <div className="gemini-orb">
+              <Sparkles size={48} color="#fff" />
+            </div>
+            <div className="orb-rings">
+              <div className="ring" />
+              <div className="ring" />
+              <div className="ring" />
+            </div>
+          </div>
+          <div className="edge-content">
+            <div className="section-label" style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#818cf8', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+              Technological Edge
+            </div>
+            <h2 className="section-title" style={{ fontSize: '2.5rem', textAlign: 'left' }}>
+              Powered by Gemini 1.5 Flash.
+            </h2>
+            <p style={{ color: 'rgba(255,255,255,0.6)', lineHeight: '1.8', marginBottom: '2rem', fontSize: '1.1rem' }}>
+              We leverage Google's most efficient multimodal model to bridge the gap between fragmented field reality and strategic command decisions.
+            </p>
+            <div className="edge-features">
+              <div className="edge-feat-item">
+                <div className="feat-dot" />
+                <span><strong>1M Context Window:</strong> Ingesting months of field reports for long-term pattern detection.</span>
+              </div>
+              <div className="edge-feat-item">
+                <div className="feat-dot" />
+                <span><strong>Sub-Second Latency:</strong> Real-time analysis for rapid response units in active zones.</span>
+              </div>
+              <div className="edge-feat-item">
+                <div className="feat-dot" />
+                <span><strong>Multimodal Reasoner:</strong> Understanding the visual context of disaster damage directly from field photos.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Process Section */}
       <section className="process-section">
         <div className="process-grid">
-          <div className="process-visual">
+          <motion.div 
+            className="process-visual"
+            initial={{ opacity: 0, scale: 0.95 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true, margin: "-100px" }}
+          >
             <div className="pulse-circle" />
             <div className="scan-line" />
-          </div>
-          <div className="process-content">
-            <div className="section-label">The Intelligence Loop</div>
-            <h2 className="section-title">From scattered data to <br /> orchestrated response.</h2>
-            <ul className="process-list">
-              <li>
-                <div className="list-icon"><CheckCircle2 size={16} /></div>
-                <div><strong>Aggregate:</strong> Connect multiple fragmented community effort logs.</div>
-              </li>
-              <li>
-                <div className="list-icon"><ShieldCheck size={16} /></div>
-                <div><strong>Verify:</strong> Deterministic ranking of urgent local priorities.</div>
-              </li>
-              <li>
-                <div className="list-icon"><Globe size={16} /></div>
-                <div><strong>Deploy:</strong> Smart matching system for volunteers and NGOs.</div>
-              </li>
-            </ul>
-          </div>
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, x: 30 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true, margin: "-100px" }}
+          >
+            <div className="process-content">
+              <div className="section-label">The Intelligence Loop</div>
+              <h2 className="section-title">From scattered data to <br /> orchestrated response.</h2>
+              <ul className="process-list">
+                <motion.li
+                  initial={{ opacity: 0, x: -20 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.1, duration: 0.6 }}
+                  viewport={{ once: true }}
+                >
+                  <div className="list-icon"><Database size={16} /></div>
+                  <div><strong>Ingest:</strong> Gemini parses unstructured field reports automatically.</div>
+                </motion.li>
+                <motion.li
+                  initial={{ opacity: 0, x: -20 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.2, duration: 0.6 }}
+                  viewport={{ once: true }}
+                >
+                  <div className="list-icon"><Activity size={16} /></div>
+                  <div><strong>Analyze:</strong> Real-time divergence detection for allocation gaps.</div>
+                </motion.li>
+                <motion.li
+                  initial={{ opacity: 0, x: -20 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.3, duration: 0.6 }}
+                  viewport={{ once: true }}
+                >
+                  <div className="list-icon"><Globe size={16} /></div>
+                  <div><strong>Deploy:</strong> Smart matching system for volunteers and NGOs.</div>
+                </motion.li>
+              </ul>
+            </div>
+          </motion.div>
         </div>
       </section>
 
       {/* Stats / Impact */}
       <section className="impact-section">
+        <motion.div
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          transition={{ duration: 1 }}
+          style={{ textAlign: 'center', marginBottom: '5rem' }}
+        >
+          <div className="section-label">The Outcome</div>
+          <h2 className="section-title">Measurable Strategic Superiority.</h2>
+        </motion.div>
         <div className="impact-grid">
-           <div className="stat-card">
+           <motion.div 
+              className="stat-card"
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0 }}
+              viewport={{ once: true, margin: "-100px" }}
+           >
               <div className="stat-val">100%</div>
               <div className="stat-label">Data Visibility</div>
-           </div>
-           <div className="stat-card">
+              <p className="stat-desc">Zero dark spots in field report ingestion through automated AI digitization.</p>
+           </motion.div>
+           <motion.div 
+              className="stat-card"
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.1 }}
+              viewport={{ once: true, margin: "-100px" }}
+           >
               <div className="stat-val">2.4x</div>
               <div className="stat-label">Faster Deployment</div>
-           </div>
-           <div className="stat-card">
+              <p className="stat-desc">Reduction in mobilization time for rapid response units via smart matching.</p>
+           </motion.div>
+           <motion.div 
+              className="stat-card"
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+              viewport={{ once: true, margin: "-100px" }}
+           >
               <div className="stat-val">0</div>
               <div className="stat-label">Resource Waste</div>
-           </div>
+              <p className="stat-desc">Eliminating duplicate aid shipments through real-time divergence detection.</p>
+           </motion.div>
         </div>
       </section>
 
-      <footer className="landing-footer">
+      <motion.footer 
+        className="landing-footer"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        transition={{ duration: 0.8 }}
+        viewport={{ once: true }}
+      >
         <div className="footer-content">
-          <div className="footer-brand">
+          <motion.div 
+            className="footer-brand"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            viewport={{ once: true }}
+          >
             <div className="footer-logo" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} style={{ cursor: 'pointer' }}>
               <div className="logo-icon" /> ImpactLink
             </div>
             <p>Extreme orchestration for smart resource allocation. Built for the Google Solutions Hackathon 2026.</p>
-          </div>
+          </motion.div>
 
-          <div className="footer-col">
+          <motion.div 
+            className="footer-col"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.05 }}
+            viewport={{ once: true }}
+          >
             <h4>Product</h4>
             <div className="footer-links">
               <button className="footer-link" onClick={() => openAuth('signup')}>Features</button>
@@ -335,9 +561,15 @@ export default function LandingPage() {
               <button className="footer-link" onClick={() => openAuth('signup')}>Simulator</button>
               <button className="footer-link" onClick={() => setInfoModal('docs')}>Integrations</button>
             </div>
-          </div>
+          </motion.div>
 
-          <div className="footer-col">
+          <motion.div 
+            className="footer-col"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.1 }}
+            viewport={{ once: true }}
+          >
             <h4>Resources</h4>
             <div className="footer-links">
               <button className="footer-link" onClick={() => setInfoModal('docs')}>Documentation</button>
@@ -345,19 +577,29 @@ export default function LandingPage() {
               <button className="footer-link" onClick={() => setInfoModal('docs')}>API Reference</button>
               <button className="footer-link" onClick={() => setInfoModal('about')}>Status</button>
             </div>
-          </div>
+          </motion.div>
 
-          <div className="footer-col">
+          <motion.div 
+            className="footer-col"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.15 }}
+            viewport={{ once: true }}
+          >
             <h4>Company</h4>
             <div className="footer-links">
               <button className="footer-link" onClick={() => setInfoModal('about')}>About Us</button>
               <button className="footer-link" onClick={() => setInfoModal('about')}>Impact</button>
-              <button className="footer-link" onClick={() => setInfoModal('privacy')}>Careers</button>
-              <button className="footer-link" onClick={() => setInfoModal('docs')}>Newsletter</button>
             </div>
-          </div>
+          </motion.div>
 
-          <div className="footer-col">
+          <motion.div 
+            className="footer-col"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            viewport={{ once: true }}
+          >
             <h4>Legal</h4>
             <div className="footer-links">
               <button className="footer-link" onClick={() => setInfoModal('privacy')}>Privacy Policy</button>
@@ -365,7 +607,7 @@ export default function LandingPage() {
               <button className="footer-link" onClick={() => setInfoModal('license')}>License</button>
               <button className="footer-link" onClick={() => setInfoModal('privacy')}>Security</button>
             </div>
-          </div>
+          </motion.div>
         </div>
 
         <div className="footer-bottom">
@@ -375,7 +617,7 @@ export default function LandingPage() {
             V1.5 FLASH_ENGINE: NOMINAL
           </div>
         </div>
-      </footer>
+      </motion.footer>
 
 
       {/* Info Modals */}
@@ -461,7 +703,7 @@ function LiveVisualizer() {
 
   // Cycle through queue items
   useEffect(() => {
-    const timer = setInterval(() => setActiveQueue(p => (p + 1) % 5), 3000);
+    const timer = setInterval(() => setActiveQueue(p => (p + 1) % 6), 3000);
     return () => clearInterval(timer);
   }, []);
 
@@ -679,12 +921,18 @@ function LiveVisualizer() {
 }
 
 
-function FeatureCard({ icon, title, description }) {
+function FeatureCard({ icon, title, description, tags = [], color = "#6366f1" }) {
   return (
-    <div className="feature-card">
-      <div className="feature-icon">{icon}</div>
+    <div className="feature-card" style={{ borderColor: `${color}33` }}>
+      <div className="feature-icon" style={{ background: `${color}1A`, borderColor: `${color}33`, color: color }}>
+        {icon}
+      </div>
+      <div className="feature-tags">
+        {tags.map(tag => <span key={tag} className="f-tag" style={{ background: `${color}1A`, color: color }}>{tag}</span>)}
+      </div>
       <h3 className="feature-title">{title}</h3>
       <p className="feature-description">{description}</p>
+      <div className="card-bg-glow" style={{ background: `radial-gradient(circle at 50% 0%, ${color}10, transparent 70%)` }} />
     </div>
   );
 }

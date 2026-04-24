@@ -11,7 +11,8 @@ import {
   Package, 
   Target,
   AlertOctagon,
-  LifeBuoy
+  LifeBuoy,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createProject, updateProject, fetchProjects } from '../../../services/api';
@@ -20,14 +21,16 @@ import { useProject } from '../../../context/ProjectContext';
 // Step Components
 import Step1Identity from './Step1Identity';
 import Step2Geography from './Step2Geography';
-import Step3Timeline from './Step3Timeline';
-import Step4Personnel from './Step4Personnel';
-import Step5Roster from './Step5Roster'; // NEW
-import Step6Resources from './Step6Resources'; // MOVED
+import Step3Beneficiaries from './Step3Beneficiaries'; // NEW
+import Step4Timeline from './Step3Timeline'; // RENAMED/SHIFTED
+import Step5Personnel from './Step4Personnel'; // SHIFTED
+import Step6Roster from './Step5Roster'; // SHIFTED
+import Step7Resources from './Step6Resources'; // SHIFTED
 
 const STEPS = [
   { id: 'identity', title: 'Mission Identity', icon: Target, subtitle: 'Define mission scope and strategy' },
   { id: 'geography', title: 'Geographic Intelligence', icon: MapIcon, subtitle: 'Target specific operational zones' },
+  { id: 'beneficiaries', title: 'Impact Scope', icon: Sparkles, subtitle: 'Ingest and resolve population data' }, // NEW
   { id: 'timeline', title: 'Temporal Planning', icon: Clock, subtitle: 'Set duration and phase windows' },
   { id: 'personnel', title: 'Human Capital', icon: Users, subtitle: 'Define responder requirements' },
   { id: 'roster', title: 'Tactical Roster', icon: Check, subtitle: 'Draft specific individuals' },
@@ -78,8 +81,14 @@ export default function ProjectWizard({ onClose, initialData = null }) {
 
   // Check if form is modified (Dirty State Detection)
   const isDirty = useMemo(() => {
-    // Deep comparison using JSON stringify (sufficient for this nested object)
-    return JSON.stringify(formData) !== JSON.stringify(originalData.current);
+    try {
+      // STRATEGIC: Safe comparison for complex state objects.
+      // Falls back to true if stringification fails to prevent "Blank Screen" crashes.
+      return JSON.stringify(formData) !== JSON.stringify(originalData.current);
+    } catch (e) {
+      console.warn('[WIZARD] Dirty state detection failed, defaulting to unsaved changes.', e);
+      return true; 
+    }
   }, [formData]);
 
   const updateFormData = (stepId, data) => {
@@ -158,10 +167,11 @@ export default function ProjectWizard({ onClose, initialData = null }) {
     switch (currentStep) {
       case 0: return <Step1Identity data={formData} update={updateFormData} />;
       case 1: return <Step2Geography data={formData} update={updateFormData} />;
-      case 2: return <Step3Timeline data={formData} update={updateFormData} />;
-      case 3: return <Step4Personnel data={formData} update={updateFormData} />;
-      case 4: return <Step5Roster data={formData} update={updateFormData} />;
-      case 5: return <Step6Resources data={formData} update={updateFormData} />;
+      case 2: return <Step3Beneficiaries data={formData} update={updateFormData} />;
+      case 3: return <Step4Timeline data={formData} update={updateFormData} />;
+      case 4: return <Step5Personnel data={formData} update={updateFormData} />;
+      case 5: return <Step6Roster data={formData} update={updateFormData} />;
+      case 6: return <Step7Resources data={formData} update={updateFormData} />;
       default: return null;
     }
   };

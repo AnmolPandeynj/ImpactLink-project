@@ -39,42 +39,59 @@ export default function Step5Roster({ data, update }) {
   }, []);
 
   const toggleVolunteer = (regionIdx, volunteerId, type) => {
-    const currentRoster = [...(data.assignedRoster || [])];
-    const isSelected = currentRoster.some(r => r.volunteerId === volunteerId && r.regionIndex === regionIdx && r.type === type);
-    
-    if (isSelected) {
-      const updated = currentRoster.filter(r => !(r.volunteerId === volunteerId && r.regionIndex === regionIdx && r.type === type));
-      update('roster', { assignedRoster: updated });
-    } else {
-      // Check limits
-      const target = data.regions[regionIdx]?.volunteerTargets?.[type] || 0;
-      const currentlySelected = currentRoster.filter(r => r.regionIndex === regionIdx && r.type === type).length;
+    try {
+      const currentRoster = [...(data?.assignedRoster || [])];
+      const isSelected = currentRoster.some(r => r?.volunteerId === volunteerId && r?.regionIndex === regionIdx && r?.type === type);
       
-      if (currentlySelected < target) {
-        update('roster', { assignedRoster: [...currentRoster, { volunteerId, regionIndex: regionIdx, type }] });
+      if (isSelected) {
+        const updated = currentRoster.filter(r => !(String(r?.volunteerId) === String(volunteerId) && r?.regionIndex === regionIdx && r?.type === type));
+        update('roster', { assignedRoster: updated });
+      } else {
+        // STRATEGIC: Strictly stringify IDs to prevent non-serializable objects from entering state
+        update('roster', { assignedRoster: [...currentRoster, { volunteerId: String(volunteerId), regionIndex: Number(regionIdx), type: String(type) }] });
       }
+    } catch (err) {
+      console.error('[ROSTER] Toggle Failure:', err);
     }
   };
 
   const getFilteredVolunteers = (regionIdx, type) => {
-    if (!volunteers.length) return [];
+    if (!volunteers || !volunteers.length) return [];
     
-    if (type === 'local') {
-      const region = data.regions[regionIdx];
-      const { lat, lng } = region.center;
-      const radius = region.radius;
-      
-      return volunteers.filter(v => {
+    // STRATEGIC: Prevent crash if regions are missing or index is out of bounds
+    const region = data?.regions?.[regionIdx];
+    const center = region?.center || { lat: 0, lng: 0 };
+    const radius = region?.radius || 10000; // Default to global if no radius
+
+    const { lat, lng } = center;
+
+    // STRATEGIC: Show all active volunteers, but calculate proximity for context
+    const list = volunteers
+      .filter(v => v && v.status === 'Active')
+      .map(v => {
         const vLat = v.locationId?.lat;
         const vLng = v.locationId?.lng;
-        if (!vLat || !vLng) return false;
-        const dist = calculateHaversineDistance(lat, lng, vLat, vLng);
-        return dist <= radius && v.status === 'Active';
+        let distance = null;
+        let isInRange = false;
+        
+        if (vLat && vLng && lat !== 0 && lng !== 0) {
+          distance = calculateHaversineDistance(lat, lng, vLat, vLng);
+          isInRange = distance <= radius;
+        }
+
+        return { ...v, distance, isInRange };
       });
-    } else {
-      // Travel (Mobile) - Anyone Active
-      return volunteers.filter(v => v.status === 'Active');
+
+    // TACTICAL: Sort by Proximity for Local, and by AI Match for both
+    if (type === 'local') {
+      return list.sort((a, b) => {
+        if (a.isInRange && !b.isInRange) return -1;
+        if (!a.isInRange && b.isInRange) return 1;
+        return (a.distance || 9999) - (b.distance || 9999);
+      });
     }
+    
+    return list;
   };
 
   const handleAutoDraft = async () => {
@@ -179,6 +196,39 @@ export default function Step5Roster({ data, update }) {
          ))}
        </div>
 
+       {/* Population Insight HUD */}
+       {data.beneficiarySummary && (
+         <motion.div 
+           initial={{ opacity: 0, y: 10 }}
+           animate={{ opacity: 1, y: 0 }}
+           style={{ 
+             marginTop: '-1rem', marginBottom: '0rem', padding: '1rem 1.5rem', 
+             background: 'linear-gradient(90deg, rgba(79, 70, 229, 0.05), rgba(0,0,0,0.2))', 
+             borderRadius: '16px', border: '1px solid rgba(79, 70, 229, 0.1)',
+             display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+           }}
+         >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+               <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(79, 70, 229, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Users size={20} color="var(--primary)" />
+               </div>
+               <div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', fontWeight: 800, textTransform: 'uppercase' }}>Target Impact Scope</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff' }}>
+                     {data.beneficiarySummary.perZone?.find(z => z.zoneId === String(activeTab))?.count || 0} Beneficiaries <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', fontWeight: 400 }}>in {data.regions[activeTab]?.name || `Area ${activeTab + 1}`}</span>
+                   </div>
+               </div>
+            </div>
+
+            <div style={{ textAlign: 'right' }}>
+               <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', fontWeight: 800, textTransform: 'uppercase' }}>Total Population Served</div>
+               <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--success)' }}>
+                  {data.beneficiarySummary.totalCount || 0} Records
+               </div>
+            </div>
+         </motion.div>
+       )}
+
        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem' }}>
           {/* LOCAL DRAFTBOARD */}
           <DraftSection 
@@ -186,12 +236,13 @@ export default function Step5Roster({ data, update }) {
             icon={MapPin}
             type="local"
             color="var(--success)"
-            target={data.regions?.[activeTab]?.volunteerTargets?.local || 0}
+            target={data?.regions?.[activeTab]?.volunteerTargets?.local || 0}
             candidates={getFilteredVolunteers(activeTab, 'local')}
-            selectedRoster={data.assignedRoster || []}
+            selectedRoster={data?.assignedRoster || []}
             onToggle={(id) => toggleVolunteer(activeTab, id, 'local')}
             regionIdx={activeTab}
             isLoading={isLoading}
+            data={data}
           />
 
           {/* TRAVEL DRAFTBOARD */}
@@ -200,31 +251,60 @@ export default function Step5Roster({ data, update }) {
             icon={Plane}
             type="travel"
             color="var(--accent-tertiary)"
-            target={data.regions?.[activeTab]?.volunteerTargets?.travel || 0}
+            target={data?.regions?.[activeTab]?.volunteerTargets?.travel || 0}
             candidates={getFilteredVolunteers(activeTab, 'travel')}
-            selectedRoster={data.assignedRoster || []}
+            selectedRoster={data?.assignedRoster || []}
             onToggle={(id) => toggleVolunteer(activeTab, id, 'travel')}
             regionIdx={activeTab}
             isLoading={isLoading}
+            data={data}
           />
        </div>
     </div>
   );
 }
 
-function DraftSection({ title, icon: Icon, type, color, target, candidates, selectedRoster, onToggle, regionIdx, isLoading }) {
+function DraftSection({ title, icon: Icon, type, color, target, candidates, selectedRoster, onToggle, regionIdx, isLoading, data }) {
   const selectedCount = selectedRoster.filter(r => r.regionIndex === regionIdx && r.type === type).length;
-  const isComplete = selectedCount === target && target > 0;
+  const isOverQuota = selectedCount > target;
+  const isTargetMet = selectedCount >= target && target > 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-             <Icon size={18} color={color} />
-             <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#fff' }}>{title}</span>
+       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+               <div style={{ padding: '0.5rem', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                 <Icon size={18} color={color} />
+               </div>
+               <div>
+                 <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#fff', lineHeight: 1.2 }}>{title}</div>
+                 <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', marginTop: '0.2rem' }}>
+                   Pool Density: <span style={{ color: '#fff', fontWeight: 600 }}>{candidates.length} Responders</span>
+                 </div>
+               </div>
+            </div>
+            <div style={{ 
+              fontSize: '0.65rem', fontWeight: 800, padding: '0.3rem 0.6rem', borderRadius: '6px',
+              background: isOverQuota ? 'rgba(251, 191, 36, 0.1)' : (isTargetMet ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.05)'),
+              color: isOverQuota ? '#fbbf24' : (isTargetMet ? '#10b981' : 'var(--text-dim)'),
+              border: '1px solid', borderColor: isOverQuota ? 'rgba(251, 191, 36, 0.2)' : (isTargetMet ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.1)')
+            }}>
+               {isOverQuota ? 'OVER QUOTA' : (isTargetMet ? 'TARGET MET' : 'DRAFTING')}
+            </div>
           </div>
-          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: isComplete ? 'var(--success)' : 'var(--text-dim)' }}>
-             Drafted: <span style={{ color: isComplete ? 'var(--success)' : '#fff', fontSize: '1rem' }}>{selectedCount}</span> / {target}
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+             <div style={{ flex: 1, height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min((selectedCount / (target || 1)) * 100, 100)}%` }}
+                  style={{ height: '100%', background: color, borderRadius: '3px' }} 
+                />
+             </div>
+             <div style={{ fontSize: '0.8rem', fontWeight: 900, color: '#fff', minWidth: '45px', textAlign: 'right' }}>
+                {selectedCount} <span style={{ color: 'var(--text-dim)', fontSize: '0.7rem', fontWeight: 500 }}>/ {target}</span>
+             </div>
           </div>
        </div>
 
@@ -241,42 +321,87 @@ function DraftSection({ title, icon: Icon, type, color, target, candidates, sele
             <div style={{ textAlign: 'center', marginTop: '4rem', color: 'var(--text-dim)', fontSize: '0.8rem' }}>
                No available responders found for this criteria.
             </div>
-          ) : candidates.map(v => {
-            const isSelected = selectedRoster.some(r => r.volunteerId === v._id && r.regionIndex === regionIdx && r.type === type);
-            const isSelectedElsewhere = selectedRoster.some(r => r.volunteerId === v._id && (r.regionIndex !== regionIdx || r.type !== type));
+          ) : (candidates || []).map(v => {
+            if (!v || !v._id) return null;
+            const isSelected = (selectedRoster || []).some(r => String(r?.volunteerId) === String(v._id) && Number(r?.regionIndex) === Number(regionIdx) && r?.type === type);
+            const assignmentElsewhere = (selectedRoster || []).find(r => String(r?.volunteerId) === String(v._id) && (Number(r?.regionIndex) !== Number(regionIdx) || r?.type !== type));
+            const isSelectedElsewhere = !!assignmentElsewhere;
+            const assignedRegionName = isSelectedElsewhere ? (data?.regions?.[assignmentElsewhere.regionIndex]?.name || `Area ${Number(assignmentElsewhere.regionIndex) + 1}`) : null;
             
             return (
               <motion.div
                 key={v._id}
-                whileHover={{ scale: 1.01 }}
+                whileHover={{ scale: isSelectedElsewhere ? 1 : 1.01 }}
                 onClick={() => !isSelectedElsewhere && onToggle(v._id)}
                 style={{
-                  padding: '1rem', background: isSelected ? 'rgba(79, 70, 229, 0.08)' : 'rgba(255,255,255,0.02)',
-                  border: '1px solid', borderColor: isSelected ? 'var(--primary)' : 'rgba(255,255,255,0.05)',
-                  borderRadius: '12px', cursor: isSelectedElsewhere ? 'default' : 'pointer',
-                  opacity: isSelectedElsewhere ? 0.3 : 1, transition: 'all 0.2s',
-                  display: 'flex', flexDirection: 'column', gap: '0.75rem'
+                  padding: '1.25rem', background: isSelected ? 'rgba(79, 70, 229, 0.12)' : 'rgba(255,255,255,0.02)',
+                  border: isSelected ? '2px solid #fff' : '1px solid rgba(255,255,255,0.05)',
+                  boxShadow: isSelected ? '0 0 20px rgba(255, 255, 255, 0.15)' : 'none',
+                  borderRadius: '16px', cursor: isSelectedElsewhere ? 'not-allowed' : 'pointer',
+                  opacity: isSelectedElsewhere ? 0.4 : 1, transition: 'background 0.2s, box-shadow 0.2s, border 0.1s',
+                  display: 'flex', flexDirection: 'column', gap: '1.25rem',
+                  position: 'relative'
                 }}
               >
+                {isSelectedElsewhere && (
+                  <div style={{ 
+                    position: 'absolute', top: '0.75rem', right: '0.75rem', 
+                    padding: '0.25rem 0.5rem', background: 'rgba(239, 68, 68, 0.1)', 
+                    border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '6px',
+                    fontSize: '0.55rem', fontWeight: 800, color: '#ef4444', textTransform: 'uppercase'
+                  }}>
+                    Assigned: {assignedRegionName}
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                       <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800 }}>
-                        {v.name.split(' ').map(n=>n[0]).join('')}
+                        {(v.name || 'Unknown').split(' ').filter(Boolean).map(n=>n[0]).join('')}
                       </div>
                       <div>
-                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff' }}>{v.name}</div>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)' }}>{v.skills.slice(0, 2).join(' • ')}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#fff', whiteSpace: 'nowrap' }}>{v.name}</div>
+                          {type === 'local' && v.isInRange && (
+                            <div style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', background: 'rgba(52, 211, 153, 0.15)', color: '#34d399', fontSize: '0.55rem', fontWeight: 900 }}>LOCAL</div>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', fontWeight: 500, marginTop: '2px' }}>{v.skills.slice(0, 3).join(' • ')}</div>
                       </div>
-                   </div>
-                   {isSelected && <CheckCircle2 size={16} color="var(--primary)" />}
-                   
-                   {/* STRATEGIC: Semantic Relevance Indicator */}
-                   {v.semanticScore !== undefined && v.semanticScore > 0 && (
-                     <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '0.5rem', color: 'var(--primary)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>AI Match</div>
-                        <div style={{ fontSize: '0.9rem', fontWeight: 900, color: v.semanticScore > 0.8 ? '#10B981' : '#fff' }}>{Math.round(v.semanticScore * 100)}%</div>
-                     </div>
-                   )}
+                 </div>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    {type === 'local' ? (
+                      v.distance !== null && v.isInRange && (
+                        <div style={{ textAlign: 'right', marginRight: '0.5rem' }}>
+                          <div style={{ fontSize: '0.5rem', color: 'var(--text-dim)', fontWeight: 700 }}>DISTANCE</div>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--success)' }}>{v.distance.toFixed(1)} km</div>
+                        </div>
+                      )
+                    ) : (
+                      <div style={{ textAlign: 'right', marginRight: '0.75rem', minWidth: '100px' }}>
+                        <div style={{ fontSize: '0.55rem', color: 'var(--text-dim)', fontWeight: 800, letterSpacing: '0.05em' }}>STATIONED</div>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>
+                          {v.locationId?.city ? `${v.locationId.city}, ${v.locationId.state || ''}` : (v.locationId?.name || 'Local Base')}
+                        </div>
+                      </div>
+                    )}
+                    {isSelected && (
+                      <div style={{ 
+                        width: '24px', height: '24px', borderRadius: '50%', background: 'var(--primary)', 
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 0 10px rgba(79, 70, 229, 0.5)'
+                      }}>
+                        <CheckCircle2 size={16} color="#fff" />
+                      </div>
+                    )}
+                    
+                    {/* STRATEGIC: Semantic Relevance Indicator */}
+                    {v.semanticScore !== undefined && v.semanticScore > 0 && (
+                      <div style={{ textAlign: 'right', minWidth: '50px' }}>
+                          <div style={{ fontSize: '0.5rem', color: 'var(--primary)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>AI Match</div>
+                          <div style={{ fontSize: '0.9rem', fontWeight: 900, color: v.semanticScore > 0.8 ? '#10B981' : '#fff' }}>{Math.round(v.semanticScore * 100)}%</div>
+                      </div>
+                    )}
+                 </div>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '0.75rem' }}>

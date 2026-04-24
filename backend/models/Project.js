@@ -68,6 +68,26 @@ const projectSchema = new mongoose.Schema({
     type: { type: String, enum: ['local', 'travel'] }
   }],
 
+  // Beneficiary Intelligence (Impact Scope)
+  beneficiaryDatasets: [{
+    datasetId:    { type: mongoose.Schema.Types.ObjectId, ref: 'BeneficiaryDataset' },
+    linkedAt:     { type: Date, default: Date.now },
+    recordsLinked: { type: Number }
+  }],
+
+  beneficiarySummary: {
+    totalCount:   { type: Number, default: 0 },
+    perZone: [{
+      zoneId:       String,
+      zoneName:     String,
+      count:        Number,
+      needBreakdown: { type: Map, of: Number }   // { food: 12, medical: 8, ... }
+    }],
+    outOfZoneCount:     { type: Number, default: 0 },
+    unresolvedCount:    { type: Number, default: 0 },
+    lastUpdated:        { type: Date }
+  },
+
   // Mission Metadata
   metadata: {
     priority: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Medium' },

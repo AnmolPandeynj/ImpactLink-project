@@ -13,6 +13,9 @@ const Supply = require('./models/Supply');
 const { dbscan } = require('./services/clustering');
 const { encrypt, decrypt } = require('./services/encryption');
 const volunteerRouter = require('./routes/volunteer');
+const locationRoutes = require('./routes/location');
+const beneficiaryDatasetRoutes = require('./routes/beneficiaryDatasets');
+
 // Allocation Engine — wrapped in try/catch so a crash here doesn't kill the server
 let runAllocation, getLastAllocationResult, isAllocationRunning;
 try {
@@ -194,6 +197,9 @@ app.post('/api/projects', verifyToken, async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 });
+
+// 2.6 Beneficiary Intelligence (Impact Scope)
+app.use('/api/beneficiary-datasets', verifyToken, beneficiaryDatasetRoutes);
 
 app.patch('/api/projects/:id', verifyToken, async (req, res) => {
   try {
