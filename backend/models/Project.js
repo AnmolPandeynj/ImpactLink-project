@@ -28,7 +28,12 @@ const projectSchema = new mongoose.Schema({
       lng: { type: Number }
     },
     radius: { type: Number, default: 50 }, // in km
-    name: { type: String }
+    name: { type: String },
+    volunteerTargets: {
+      total: { type: Number, default: 0 },
+      local: { type: Number, default: 0 },
+      travel: { type: Number, default: 0 }
+    }
   }],
 
   // Temporal Planning
@@ -75,18 +80,10 @@ const projectSchema = new mongoose.Schema({
     recordsLinked: { type: Number }
   }],
 
-  beneficiarySummary: {
-    totalCount:   { type: Number, default: 0 },
-    perZone: [{
-      zoneId:       String,
-      zoneName:     String,
-      count:        Number,
-      needBreakdown: { type: Map, of: Number }   // { food: 12, medical: 8, ... }
-    }],
-    outOfZoneCount:     { type: Number, default: 0 },
-    unresolvedCount:    { type: Number, default: 0 },
-    lastUpdated:        { type: Date }
-  },
+  // Beneficiary Intelligence (Impact Scope Summary)
+  // STRATEGIC: Mixed type allows for dynamic zonal stats (counts, needs, statuses)
+  // without rigid schema conflicts during rapid asynchronous ingestion.
+  beneficiarySummary: { type: mongoose.Schema.Types.Mixed, default: {} },
 
   // Mission Metadata
   metadata: {

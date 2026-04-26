@@ -34,10 +34,21 @@ export const beneficiaryApi = {
   },
 
   // Start processing (creation + geocoding)
-  processDataset: async (id, columnMapping, projectId) => {
+  processDataset: async (id, columnMapping, projectId, zoneId) => {
     const res = await axios.post(`${API_BASE}/${id}/process`, {
       columnMapping,
-      projectId
+      projectId,
+      zoneId
+    }, getAuthHeaders());
+    return res.data;
+  },
+
+  // V2 PROCESS (Direct Native Bypass)
+  processDatasetV2: async (id, columnMapping, projectId, zoneId) => {
+    const res = await axios.post(`${API_BASE}/${id}/v2/process`, {
+      columnMapping,
+      projectId,
+      zoneId
     }, getAuthHeaders());
     return res.data;
   },

@@ -46,7 +46,7 @@ export default function ProjectWizard({ onClose, initialData = null }) {
   const isEditMode = !!initialData;
 
   // Unified Form State (Hydrated for Legacy Projects)
-  const [formData, setFormData] = useState({
+  const defaultData = {
     name: '',
     description: '',
     operatingMode: 'assisted',
@@ -72,12 +72,15 @@ export default function ProjectWizard({ onClose, initialData = null }) {
     hierarchicalSupplies: [
       { category: 'Food & Water', items: [{ type: 'Basic Rations', unit: 'kits', targetQuantity: 1000 }] },
       { category: 'Medical', items: [{ type: 'First Aid Kits', unit: 'units', targetQuantity: 500 }] }
-    ],
-    ...initialData // Merge existing data over defaults
-  });
+    ]
+  };
+
+  const [formData, setFormData] = useState(
+    initialData ? JSON.parse(JSON.stringify({ ...defaultData, ...initialData })) : JSON.parse(JSON.stringify(defaultData))
+  );
 
   // Store the initial state to detect changes
-  const originalData = useRef(formData);
+  const originalData = useRef(JSON.parse(JSON.stringify(formData)));
 
   // Check if form is modified (Dirty State Detection)
   const isDirty = useMemo(() => {
@@ -241,7 +244,8 @@ export default function ProjectWizard({ onClose, initialData = null }) {
         <aside style={{ 
           width: '320px', borderRight: '1px solid rgba(255,255,255,0.05)', 
           background: 'rgba(0,0,0,0.2)', padding: '2rem',
-          display: 'flex', flexDirection: 'column', gap: '0.5rem'
+          display: 'flex', flexDirection: 'column', gap: '0.5rem',
+          overflowY: 'auto'
         }}>
           <div style={{ marginBottom: '2rem' }}>
              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>

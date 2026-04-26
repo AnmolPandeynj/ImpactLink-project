@@ -97,8 +97,9 @@ export const patchIncident = async (id, data) => {
 };
 
 // ─── Beneficiaries ────────────────────────────────────────
-export const fetchBeneficiaries = async () => {
-  const res = await fetch(`${API_BASE_URL}/api/beneficiaries`, {
+export const fetchBeneficiaries = async (projectId = null) => {
+  const url = projectId ? `${API_BASE_URL}/api/beneficiaries?projectId=${projectId}` : `${API_BASE_URL}/api/beneficiaries`;
+  const res = await fetch(url, {
     headers: await getAuthHeaders()
   });
   if (!res.ok) throw new Error(`Failed to fetch beneficiaries: ${res.status}`);

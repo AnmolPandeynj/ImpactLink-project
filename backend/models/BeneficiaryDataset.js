@@ -10,7 +10,7 @@ const BeneficiaryDatasetSchema = new mongoose.Schema({
   // Source file metadata (original upload preserved for re-ingestion)
   sourceFile: {
     originalName:  { type: String },
-    storagePath:   { type: String },                   // local path for now
+    storagePath:   { type: String },
     mimeType:      { type: String },
     rowCount:      { type: Number },
     sizeBytes:     { type: Number },
@@ -18,28 +18,23 @@ const BeneficiaryDatasetSchema = new mongoose.Schema({
   },
 
   // Column mapping (how CSV columns map to beneficiary fields)
-  columnMapping: {
-    name:          { type: String },   // CSV column name → beneficiary name
-    phone:         { type: String },
-    address:       { type: String },   // raw address column
-    lat:           { type: String },   // if coordinates present
-    lng:           { type: String },
-    needCategory:  { type: String },   // e.g. "food", "medical", "shelter"
-    severity:      { type: String },   // 1–10 urgency if present
-    customFields:  [{ csvColumn: String, mappedTo: String }]
-  },
+  // STRATEGIC: Mixed type allows flexible Multi-Select (Arrays) or encoded strings
+  columnMapping: { type: mongoose.Schema.Types.Mixed, default: {} },
 
   // Processing stats (filled after geocoding completes)
   processingStats: {
-    status:           { type: String, enum: ['pending', 'processing', 'complete', 'failed'], default: 'pending' },
+    status:           { type: String, enum: ['pending', 'ingested', 'processing', 'complete', 'failed', 'idle'], default: 'pending' },
+    processedCount:   { type: Number, default: 0 },
     geocodedCount:    { type: Number, default: 0 },
     failedCount:      { type: Number, default: 0 },
     totalRows:        { type: Number, default: 0 },
-    processingTimeMs: { type: Number }
+    processingTimeMs: { type: Number },
+    startTime:        { type: Date },
+    error:            { type: String }
   },
 
   tags:      [String],
   createdAt: { type: Date, default: Date.now }
-}, { timestamps: true });
+}, { timestamps: true }); // Strict: true is restored (default)
 
 module.exports = mongoose.model('BeneficiaryDataset', BeneficiaryDatasetSchema);

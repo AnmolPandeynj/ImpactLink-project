@@ -113,24 +113,21 @@ export default function KineticMap({
   const heatmapPoints = useMemo(() => {
     if (!isLoaded || !window.google?.maps?.LatLng) return []; 
     return incidents.map(inc => {
-      const lat = parseFloat(inc.lat);
-      const lng = parseFloat(inc.lng);
+      // SMART BINDING: Support both flat and nested (V2) geo formats
+      const lat = parseFloat(inc.geo?.lat || inc.lat);
+      const lng = parseFloat(inc.geo?.lng || inc.lng);
       if (isNaN(lat) || isNaN(lng)) return null;
 
-      // Severity and Resource Gap are the core drivers of "Glow"
+      // Urgency and Socio-Economic impact drive the "Glow"
       const urgencyWeight = (
-        (inc.severity || 5) * 0.6 + 
-        (inc.resourceGap || 5) * 0.3 + 
-        (inc.timeSensitivity || 5) * 0.1
+        (inc.calculatedUrgency || inc.severity || 5) * 0.7 + 
+        (inc.impactPotential || 5) * 0.3
       );
-      
-      const frequencyBoost = Math.sqrt(inc.frequency || 1);
-      const finalWeight = urgencyWeight * frequencyBoost;
       
       try {
         return {
           location: new window.google.maps.LatLng(lat, lng),
-          weight: Math.max(1, finalWeight)
+          weight: Math.max(1, urgencyWeight)
         };
       } catch (e) {
         return null;
@@ -177,10 +174,37 @@ export default function KineticMap({
     };
   }, []);
 
+  // 7. SMART CENTERING (Auto-fit to dataset)
+  React.useEffect(() => {
+    if (mapRef && incidents.length > 0) {
+      const bounds = new window.google.maps.LatLngBounds();
+      let hasValidPoints = false;
+      
+      incidents.forEach(inc => {
+        const lat = parseFloat(inc.geo?.lat || inc.lat);
+        const lng = parseFloat(inc.geo?.lng || inc.lng);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          bounds.extend({ lat, lng });
+          hasValidPoints = true;
+        }
+      });
+
+      if (hasValidPoints) {
+        mapRef.fitBounds(bounds);
+        // Don't zoom in too much for single points
+        if (mapRef.getZoom() > 15) mapRef.setZoom(15);
+      }
+    }
+  }, [incidents, mapRef]);
+
   React.useEffect(() => {
     if (mapRef && selectedIncident) {
-      mapRef.panTo({ lat: selectedIncident.lat, lng: selectedIncident.lng });
-      mapRef.setZoom(11);
+      const lat = parseFloat(selectedIncident.geo?.lat || selectedIncident.lat);
+      const lng = parseFloat(selectedIncident.geo?.lng || selectedIncident.lng);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        mapRef.panTo({ lat, lng });
+        mapRef.setZoom(13);
+      }
     }
   }, [selectedIncident, mapRef]);
 
@@ -386,7 +410,10 @@ export default function KineticMap({
           {(clusterer) => (
             <>
               {((clusters && clusters.points) || incidents).map((inc) => {
-                const pos = { lat: parseFloat(inc.lat), lng: parseFloat(inc.lng) };
+                const pos = { 
+                  lat: parseFloat(inc.geo?.lat || inc.lat), 
+                  lng: parseFloat(inc.geo?.lng || inc.lng) 
+                };
                 if (isNaN(pos.lat) || isNaN(pos.lng)) return null;
 
                 const isStrategic = vizMode === 'STRATEGIC';

@@ -69,10 +69,10 @@ export default function Step4Personnel({ data, update }) {
       region.volunteerTargets = { total: 0, local: 0, travel: 0 };
     }
 
-    // 1. Strict Capacity Guardrails
+    // 1. Capacity Monitoring (Warning only, not forced clamping)
     if (field === 'local') {
       const maxLocal = availabilityData.regions[regionIdx] || 0;
-      numValue = Math.min(numValue, maxLocal);
+      // numValue = Math.min(numValue, maxLocal); // REMOVED RESTRICTION
     } else if (field === 'travel') {
       const totalMobileAvailable = availabilityData.mobile;
       const otherRegionsTravelTotal = data.regions.reduce((sum, r, idx) => {
@@ -81,7 +81,7 @@ export default function Step4Personnel({ data, update }) {
       }, 0);
       
       const headroom = Math.max(0, totalMobileAvailable - otherRegionsTravelTotal);
-      numValue = Math.min(numValue, headroom);
+      // numValue = Math.min(numValue, headroom); // REMOVED RESTRICTION
     }
 
     const newTargets = { ...region.volunteerTargets, [field]: numValue };
@@ -267,7 +267,9 @@ export default function Step4Personnel({ data, update }) {
                               opacity: item.field === 'total' ? 0.8 : 1
                             }}
                           />
-                          <div style={{ fontSize: '0.625rem', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.desc}</div>
+                          <div style={{ fontSize: '0.625rem', fontWeight: 700, color: (item.availability < (region.volunteerTargets?.[item.field] || 0) && item.field !== 'total') ? 'var(--error)' : 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                            {item.desc} {(item.availability < (region.volunteerTargets?.[item.field] || 0) && item.field !== 'total') && ' (SHORTFALL)'}
+                          </div>
                        </div>
                     </div>
                   ))}

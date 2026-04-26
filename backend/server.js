@@ -13,7 +13,7 @@ const Supply = require('./models/Supply');
 const { dbscan } = require('./services/clustering');
 const { encrypt, decrypt } = require('./services/encryption');
 const volunteerRouter = require('./routes/volunteer');
-const locationRoutes = require('./routes/location');
+// const locationRoutes = require('./routes/location');
 const beneficiaryDatasetRoutes = require('./routes/beneficiaryDatasets');
 
 // Allocation Engine — wrapped in try/catch so a crash here doesn't kill the server
@@ -148,14 +148,30 @@ app.get('/api/locations', async (req, res) => {
 // 2. Beneficiaries (with PII Protection & Auditing)
 app.get('/api/beneficiaries', verifyToken, auditPII('VIEW_PII_LIST'), async (req, res) => {
   try {
-    const records = await Beneficiary.find().populate('locationId');
-    // Decrypt names for display (only for authorized users)
-    const decrypted = records.map(r => ({
-      ...r.toObject(),
-      firstName: decrypt(r.firstName),
-      lastName: decrypt(r.lastName),
-      contactPhone: decrypt(r.contactPhone)
-    }));
+    const { projectId } = req.query;
+    let query = {};
+    
+    if (projectId && mongoose.Types.ObjectId.isValid(projectId)) {
+      const targetProject = await Project.findById(projectId);
+      // STRATEGIC: If the project is 'Global', aggregate everything. Otherwise, filter strictly.
+      if (targetProject && targetProject.scope !== 'Global') {
+        query.projectId = new mongoose.Types.ObjectId(projectId);
+      }
+    }
+
+    const records = await Beneficiary.find(query).sort({ registeredAt: -1, createdAt: -1 });
+    
+    // Decrypt sensitive identity fields for authorized display
+    const decrypted = records.map(r => {
+      const doc = r.toObject();
+      return {
+        ...doc,
+        // Fallback logic for name components
+        firstName: doc.firstName ? (doc.firstName.includes(':') ? decrypt(doc.firstName) : doc.firstName) : (doc.name ? doc.name.split(' ')[0] : 'Unknown'),
+        lastName: doc.lastName ? (doc.lastName.includes(':') ? decrypt(doc.lastName) : doc.lastName) : (doc.name ? doc.name.split(' ').slice(1).join(' ') : ''),
+        contactPhone: doc.contactPhone ? (doc.contactPhone.includes(':') ? decrypt(doc.contactPhone) : doc.contactPhone) : (doc.phone ? (doc.phone.includes(':') ? decrypt(doc.phone) : doc.phone) : 'N/A')
+      };
+    });
     res.json(decrypted);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -192,6 +208,49 @@ app.post('/api/projects', verifyToken, async (req, res) => {
   try {
     const newProj = new Project(req.body);
     const saved = await newProj.save();
+
+    // 1. Link Beneficiaries from newly processed datasets
+    if (saved.beneficiarySummary && saved.beneficiarySummary.zoneStats) {
+      const datasetIds = Object.values(saved.beneficiarySummary.zoneStats)
+        .map(z => z.datasetId)
+        .filter(Boolean);
+      if (datasetIds.length > 0) {
+        await Beneficiary.updateMany(
+          { datasetId: { $in: datasetIds }, projectId: null },
+          { $set: { projectId: saved._id } }
+        );
+      }
+    }
+
+    // 2. Synchronize Volunteers
+    if (saved.assignedRoster && saved.assignedRoster.length > 0) {
+      const volunteerIds = saved.assignedRoster.map(r => r.volunteerId);
+      await Volunteer.updateMany(
+        { _id: { $in: volunteerIds } },
+        { $addToSet: { projectIds: saved._id } }
+      );
+    }
+
+    // 3. Initialize Supplies from blueprint
+    if (saved.hierarchicalSupplies && saved.hierarchicalSupplies.length > 0) {
+      const suppliesToCreate = [];
+      saved.hierarchicalSupplies.forEach(category => {
+        if (category.items) {
+          category.items.forEach(item => {
+            suppliesToCreate.push({
+              projectId: saved._id,
+              type: item.type,
+              quantity: item.targetQuantity || 0, // Initialize with target quantity for demo purposes
+              location: 'Central Node'
+            });
+          });
+        }
+      });
+      if (suppliesToCreate.length > 0) {
+        await Supply.insertMany(suppliesToCreate);
+      }
+    }
+
     res.status(201).json(saved);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -203,8 +262,101 @@ app.use('/api/beneficiary-datasets', verifyToken, beneficiaryDatasetRoutes);
 
 app.patch('/api/projects/:id', verifyToken, async (req, res) => {
   try {
-    const updated = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const updateData = { ...req.body };
+    
+    // STRATEGIC: Prevent 'Ghost Overwrites' of background ingestion stats
+    // If the incoming update has an empty or stale summary, we merge with the existing one
+    const existing = await Project.findById(req.params.id);
+    if (existing && updateData.beneficiarySummary) {
+       updateData.beneficiarySummary = {
+         ...existing.beneficiarySummary,
+         ...updateData.beneficiarySummary,
+         totalCount: Math.max(existing.beneficiarySummary?.totalCount || 0, updateData.beneficiarySummary?.totalCount || 0),
+         zoneStats: {
+           ...(existing.beneficiarySummary?.zoneStats || {}),
+           ...(updateData.beneficiarySummary?.zoneStats || {})
+         }
+       };
+    }
+
+    const updated = await Project.findByIdAndUpdate(req.params.id, updateData, { new: true });
     if (!updated) return res.status(404).json({ error: 'Project not found' });
+
+    // 1. Link Beneficiaries from newly processed datasets
+    if (updated.beneficiarySummary && updated.beneficiarySummary.zoneStats) {
+      const datasetIds = Object.values(updated.beneficiarySummary.zoneStats)
+        .map(z => z.datasetId)
+        .filter(Boolean);
+      if (datasetIds.length > 0) {
+        await Beneficiary.updateMany(
+          { datasetId: { $in: datasetIds }, projectId: null },
+          { $set: { projectId: updated._id } }
+        );
+      }
+    }
+
+    // 2. Synchronize Volunteers
+    if (updateData.assignedRoster) {
+      await Volunteer.updateMany(
+        { projectIds: updated._id },
+        { $pull: { projectIds: updated._id } }
+      );
+      if (updated.assignedRoster.length > 0) {
+        const volunteerIds = updated.assignedRoster.map(r => r.volunteerId);
+        await Volunteer.updateMany(
+          { _id: { $in: volunteerIds } },
+          { $addToSet: { projectIds: updated._id } }
+        );
+      }
+    }
+
+    // 3. Synchronize Supplies based on updated blueprint
+    if (updated.hierarchicalSupplies) {
+      const existingSupplies = await Supply.find({ projectId: updated._id });
+      const existingTypesMap = new Map(existingSupplies.map(s => [s.type, s]));
+      
+      const newSupplies = [];
+      const updatePromises = [];
+      const blueprintTypes = new Set();
+
+      updated.hierarchicalSupplies.forEach(category => {
+        if (category.items) {
+          category.items.forEach(item => {
+            blueprintTypes.add(item.type);
+            if (!existingTypesMap.has(item.type)) {
+              newSupplies.push({
+                projectId: updated._id,
+                type: item.type,
+                quantity: item.targetQuantity || 0,
+                location: 'Central Node'
+              });
+            } else {
+              const existingSupply = existingTypesMap.get(item.type);
+              // Update quantity if the target changed
+              if (existingSupply.quantity !== item.targetQuantity) {
+                updatePromises.push(
+                  Supply.findByIdAndUpdate(existingSupply._id, { quantity: item.targetQuantity || 0 })
+                );
+              }
+            }
+          });
+        }
+      });
+
+      if (newSupplies.length > 0) {
+        await Supply.insertMany(newSupplies);
+      }
+      if (updatePromises.length > 0) {
+        await Promise.all(updatePromises);
+      }
+
+      // Remove orphaned supplies that were deleted from the blueprint
+      const suppliesToRemove = existingSupplies.filter(s => !blueprintTypes.has(s.type));
+      if (suppliesToRemove.length > 0) {
+        await Supply.deleteMany({ _id: { $in: suppliesToRemove.map(s => s._id) } });
+      }
+    }
+
     res.json(updated);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -242,12 +394,19 @@ app.get('/api/volunteers', async (req, res) => {
       // Check if this project is 'Global'
       const project = await Project.findById(req.query.projectId);
       if (project && project.scope !== 'Global') {
-        query.projectIds = req.query.projectId;
+        // Find volunteers who are either unassigned OR specifically linked to this project
+        query = { 
+          $or: [
+            { projectIds: req.query.projectId },
+            { projectIds: { $size: 0 } },
+            { projectIds: { $exists: false } }
+          ]
+        };
       }
       // If project is Global, query remains {} to fetch everyone
     }
 
-    const volunteers = await Volunteer.find(query).populate('locationId').populate('projectIds');
+    const volunteers = await Volunteer.find(query).populate('locationId').populate('projectIds').sort({ name: 1 });
     res.json(volunteers);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -335,7 +494,6 @@ app.patch('/api/resource-hub/:id', verifyToken, async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 });
-
 // 5. Data Ingestion (ETL with Deduplication)
 app.post('/api/ingestion/bulk', verifyToken, async (req, res) => {
   try {
@@ -425,6 +583,36 @@ app.get('/api/analytics/clusters', async (req, res) => {
 // POST /api/allocate — Run the full two-pass resident + mobile allocation
 // Note: verifyToken is intentionally omitted here — the engine is safe to trigger
 // from an authenticated frontend session. Add verifyToken back if needed in production.
+// --- VOLUNTEER MANAGEMENT ROUTES ---
+
+app.post('/api/volunteers', verifyToken, async (req, res) => {
+  try {
+    const volunteer = new Volunteer(req.body);
+    await volunteer.save();
+    res.status(201).json(volunteer);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch('/api/volunteers/:id', verifyToken, async (req, res) => {
+  try {
+    const updated = await Volunteer.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/volunteers/:id', verifyToken, async (req, res) => {
+  try {
+    await Volunteer.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Volunteer record deleted successfully' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.post('/api/allocate', async (req, res) => {
   try {
     const projectId = req.query.projectId || req.body?.projectId || null;

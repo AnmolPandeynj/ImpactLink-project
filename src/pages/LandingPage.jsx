@@ -486,8 +486,8 @@ export default function LandingPage() {
           transition={{ duration: 1 }}
           style={{ textAlign: 'center', marginBottom: '5rem' }}
         >
-          <div className="section-label">The Outcome</div>
-          <h2 className="section-title">Measurable Strategic Superiority.</h2>
+          <div className="section-label">Operational Metrics</div>
+          <h2 className="section-title">Measurable Impact in Every Mission.</h2>
         </motion.div>
         <div className="impact-grid">
            <motion.div 
@@ -497,9 +497,9 @@ export default function LandingPage() {
               transition={{ duration: 0.6, delay: 0 }}
               viewport={{ once: true, margin: "-100px" }}
            >
-              <div className="stat-val">100%</div>
-              <div className="stat-label">Data Visibility</div>
-              <p className="stat-desc">Zero dark spots in field report ingestion through automated AI digitization.</p>
+              <div className="stat-val">High-Fidelity</div>
+              <div className="stat-label">Data Digitization</div>
+              <p className="stat-desc">Complete conversion of fragmented paper and audio field reports into structured, actionable mission assets.</p>
            </motion.div>
            <motion.div 
               className="stat-card"
@@ -508,9 +508,9 @@ export default function LandingPage() {
               transition={{ duration: 0.6, delay: 0.1 }}
               viewport={{ once: true, margin: "-100px" }}
            >
-              <div className="stat-val">2.4x</div>
-              <div className="stat-label">Faster Deployment</div>
-              <p className="stat-desc">Reduction in mobilization time for rapid response units via smart matching.</p>
+              <div className="stat-val">Accelerated</div>
+              <div className="stat-label">Response Readiness</div>
+              <p className="stat-desc">Substantial reduction in the mobilization window for rapid response units through AI-driven deterministic matching.</p>
            </motion.div>
            <motion.div 
               className="stat-card"
@@ -519,9 +519,9 @@ export default function LandingPage() {
               transition={{ duration: 0.6, delay: 0.2 }}
               viewport={{ once: true, margin: "-100px" }}
            >
-              <div className="stat-val">0</div>
-              <div className="stat-label">Resource Waste</div>
-              <p className="stat-desc">Eliminating duplicate aid shipments through real-time divergence detection.</p>
+              <div className="stat-val">Minimized</div>
+              <div className="stat-label">Logistics Overhead</div>
+              <p className="stat-desc">Drastic reduction in aid duplication and cross-fleet redundancy, ensuring resources reach critical underserved zones.</p>
            </motion.div>
         </div>
       </section>

@@ -9,22 +9,44 @@ const XLSX = require('xlsx');
 const detectColumns = (headers) => {
   const suggestions = {
     name: null,
+    age: null,
+    gender: null,
     phone: null,
+    state: null,
+    district: null,
+    village: null,
+    incomeRange: null,
+    familySize: null,
+    occupation: null,
+    educationLevel: null,
+    housingCondition: null,
+    basicUtilities: null,
+    primaryNeed: null,
+    needSeverity: null,
     address: null,
     lat: null,
-    lng: null,
-    needCategory: null,
-    severity: null
+    lng: null
   };
 
   const patterns = {
     name: /name|beneficiary|person|recipient/i,
+    age: /age|dob|birth/i,
+    gender: /gender|sex/i,
     phone: /phone|contact|mobile|tel/i,
-    address: /address|location|addr|place|street/i,
+    state: /state|province/i,
+    district: /district|county/i,
+    village: /village|town|locality/i,
+    incomeRange: /income|salary|earnings/i,
+    familySize: /family|household|members/i,
+    occupation: /occupation|work|job/i,
+    educationLevel: /education|degree|qualification/i,
+    housingCondition: /housing|house|dwelling/i,
+    basicUtilities: /utilities|electricity|water|sanitation/i,
+    primaryNeed: /need|requirement|help/i,
+    needSeverity: /severity|priority|urgency/i,
+    address: /address|location|addr/i,
     lat: /lat|latitude/i,
-    lng: /lng|lon|longitude/i,
-    needCategory: /need|category|type|requirement/i,
-    severity: /severity|priority|urgency|level/i
+    lng: /lng|lon|longitude/i
   };
 
   headers.forEach(header => {
@@ -61,7 +83,8 @@ const getFilePreview = async (filePath) => {
       parser.on('error', reject);
     });
   } else if (['xlsx', 'xls'].includes(ext)) {
-    const workbook = XLSX.readFile(filePath);
+    // Read only the first 100 rows to determine headers and preview
+    const workbook = XLSX.readFile(filePath, { sheetRows: 100 });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
     const records = XLSX.utils.sheet_to_json(sheet, { range: 0, defval: '' });
@@ -69,7 +92,7 @@ const getFilePreview = async (filePath) => {
     const headers = records.length > 0 ? Object.keys(records[0]) : [];
     return { 
       headers, 
-      preview: records.slice(0, 5), 
+      preview: records.slice(0, 50), // Return up to 50 for frontend preview
       suggestions: detectColumns(headers) 
     };
   }

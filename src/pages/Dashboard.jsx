@@ -174,7 +174,7 @@ export default function Dashboard() {
       const projectId = currentProject?._id;
       const [incData, benData, cluData, volData, supData] = await Promise.allSettled([
         api.fetchIncidents(projectId),
-        api.fetchBeneficiaries(),
+        api.fetchBeneficiaries(projectId),
         api.fetchClusters(projectId),
         api.fetchVolunteers(projectId),
         api.fetchResourceHub(projectId)
@@ -1158,7 +1158,7 @@ function BeneficiariesTab({ beneficiaries = [], onView }) {
       const aadhar = b.aadharMasked || '';
       
       const matchesSearch = full.includes(searchTerm.toLowerCase()) || aadhar.includes(searchTerm);
-      const matchesGender = genderFilter === 'ALL' || b.gender === genderFilter;
+      const matchesGender = genderFilter === 'ALL' || b.gender?.toLowerCase() === genderFilter.toLowerCase() || (genderFilter === 'M' && b.gender === 'male') || (genderFilter === 'F' && b.gender === 'female');
       return matchesSearch && matchesGender;
     });
   }, [beneficiaries, searchTerm, genderFilter]);
@@ -1330,9 +1330,9 @@ function BeneficiariesTab({ beneficiaries = [], onView }) {
                 </td>
                 <td style={{ padding: '1rem', color: '#fff' }}>{b.firstName} {b.lastName}</td>
                 <td style={{ padding: '1rem', color: 'var(--text-muted)' }}>{b.age} / {b.gender}</td>
-                <td style={{ padding: '1rem', color: 'var(--text-muted)' }}>{b.locationId?.name || 'Unknown Hub'}</td>
-                <td style={{ padding: '1rem', fontFamily: 'monospace', color: 'var(--success)' }}>XXXX-XXXX-{b.aadharMasked}</td>
-                <td style={{ padding: '1rem', color: 'var(--text-dim)' }}>{new Date(b.registeredAt).toLocaleDateString()}</td>
+                <td style={{ padding: '1rem', color: 'var(--text-muted)' }}>{b.village || b.geo?.formattedAddress?.split(',')[0] || 'Unknown Region'}</td>
+                <td style={{ padding: '1rem', fontFamily: 'monospace', color: 'var(--success)' }}>{b.aadharMasked ? `XXXX-XXXX-${b.aadharMasked}` : 'N/A'}</td>
+                <td style={{ padding: '1rem', color: 'var(--text-dim)' }}>{b.registeredAt ? new Date(b.registeredAt).toLocaleDateString() : (b.createdAt ? new Date(b.createdAt).toLocaleDateString() : 'N/A')}</td>
                 <td style={{ padding: '1rem', textAlign: 'right' }}>
                   <button 
                     onClick={() => onView(b)}
