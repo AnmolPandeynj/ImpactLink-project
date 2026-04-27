@@ -42,6 +42,11 @@ function resolveVolunteerCoords(vol, maxStaleHours = 12) {
     return { lat: loc.lat, lng: loc.lng, source: 'hub' };
   }
 
+  // 4. Legacy root fallback (if frontend or old schema injected lat/lng directly)
+  if (vol.lat != null && vol.lng != null) {
+    return { lat: parseFloat(vol.lat), lng: parseFloat(vol.lng), source: 'legacy' };
+  }
+
   return null;
 }
 

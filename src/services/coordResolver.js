@@ -29,20 +29,25 @@ export function resolveVolunteerCoords(vol, maxStaleHours = 12) {
       ? (Date.now() - new Date(ll.updatedAt).getTime()) / 3600000
       : Infinity;
     if (ageHours <= maxStaleHours) {
-      return { lat: ll.lat, lng: ll.lng, source: 'gps', staleHours: parseFloat(ageHours.toFixed(2)) };
+      return { lat: parseFloat(ll.lat), lng: parseFloat(ll.lng), source: 'gps', staleHours: parseFloat(ageHours.toFixed(2)) };
     }
   }
 
   // 2. homeGeo — v2 schema home coordinates (may not be present in current DB)
   const hg = vol.homeGeo;
   if (hg?.lat != null && hg?.lng != null) {
-    return { lat: hg.lat, lng: hg.lng, source: 'home' };
+    return { lat: parseFloat(hg.lat), lng: parseFloat(hg.lng), source: 'home' };
   }
 
   // 3. Hub location — populated locationId ref
   const loc = vol.locationId;
-  if (loc && typeof loc === 'object' && loc.lat != null && loc.lng != null) {
-    return { lat: Number(loc.lat), lng: Number(loc.lng), source: 'hub' };
+  if (loc?.lat != null && loc?.lng != null) {
+    return { lat: parseFloat(loc.lat), lng: parseFloat(loc.lng), source: 'hub' };
+  }
+
+  // 4. Legacy root fallback (if frontend or old schema injected lat/lng directly)
+  if (vol.lat != null && vol.lng != null) {
+    return { lat: parseFloat(vol.lat), lng: parseFloat(vol.lng), source: 'legacy' };
   }
 
   return null;
