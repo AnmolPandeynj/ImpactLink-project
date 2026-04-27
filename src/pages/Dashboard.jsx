@@ -508,7 +508,7 @@ export default function Dashboard() {
             }}
           >
             <Zap size={14} />
-            {isAllocating ? 'Allocating...' : allocationResult ? `Allocated · ${(allocationResult.pass1?.assignments || 0) + (allocationResult.pass2?.dispatches || 0)}` : 'Run Allocation'}
+            {isAllocating ? 'Allocating...' : allocationResult ? `Allocated · ${allocationResult.pass1?.assignments + allocationResult.pass2?.dispatches}` : 'Run Allocation'}
           </button>
 
           <button 
@@ -957,6 +957,64 @@ function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispa
               </div>
             ))}
          </div>
+      </div>
+    </div>
+  );
+
+  if (viewMode === 'immersive') {
+    return (
+      <div style={{ position: 'relative', width: '100%', minHeight: 'calc(100vh - 4rem)', pointerEvents: 'none' }}>
+        {/* Floating Stats */}
+        <div style={{ position: 'absolute', top: '2rem', left: '0', pointerEvents: 'auto', background: 'rgba(25, 25, 25, 0.4)', backdropFilter: 'blur(32px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', padding: '1.25rem 2.5rem', boxShadow: '0 16px 40px rgba(0,0,0,0.6)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.625rem', color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '1rem' }}>
+            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 8px var(--success)' }} />
+            Gemini 2.5 Engine
+          </div>
+          {renderStats(true)}
+        </div>
+
+        {/* Critical Unmet Alert (immersive — bottom-left floating) */}
+        {criticalUnmet.length > 0 && (
+          <div style={{ position: 'absolute', bottom: '2rem', left: '0', pointerEvents: 'auto', maxWidth: '380px' }}>
+            {renderCriticalUnmetPanel()}
+          </div>
+        )}
+
+        {/* Floating Queue Sidebar */}
+        <div style={{ position: 'absolute', top: '2rem', right: '0', bottom: '2rem', width: '420px', pointerEvents: 'auto', background: 'rgba(25, 25, 25, 0.4)', backdropFilter: 'blur(32px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '-8px 16px 40px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
+          {renderPriorityQueue(true)}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '1px', background: 'var(--border-subtle)', border: '1px solid var(--border-subtle)', borderRadius: '8px', overflow: 'hidden' }}>
+      {renderCriticalUnmetPanel() && (
+        <div style={{ gridColumn: 'span 12', padding: '1.5rem 2rem 0' }}>
+          {renderCriticalUnmetPanel()}
+        </div>
+      )}
+      <div className="pane" style={{ gridColumn: 'span 12', padding: '1.5rem 2rem' }}>
+        {renderStats(false)}
+      </div>
+
+      <div className="pane" style={{ gridColumn: 'span 8', height: '600px', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+        <div className="pane-header">
+           <MapIcon size={14} /> Live Resource Allocation Network
+        </div>
+        <KineticMap 
+          isImmersive={false}
+          incidents={incidents} 
+          selectedIncident={selectedIncident} 
+          activeDispatches={activeDispatches} 
+          clusters={clusters}
+          volunteers={volunteers}
+        />
+      </div>
+
+      <div className="pane" style={{ gridColumn: 'span 4', height: '600px', display: 'flex', flexDirection: 'column', gap: '0' }}>
+        {renderPriorityQueue(false)}
       </div>
     </div>
   );

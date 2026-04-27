@@ -526,19 +526,7 @@ async function runAllocation(projectId, userId = null) {
     ]);
 
     if (missions.length === 0) {
-      return {
-        success: true,
-        runDuration: Date.now() - startTime,
-        totalMissions: 0,
-        pass1: { assignments: 0, openGaps: 0 },
-        pass2: { dispatches: 0, reserves: 0, criticalUnmet: 0 },
-        allocationEfficiency: 100,
-        assignments: [],
-        dispatches: [],
-        reserves: [],
-        criticalUnmet: [],
-        timestamp: new Date().toISOString(),
-      };
+      return { success: true, message: 'No unassigned missions to allocate.', assignments: [], dispatches: [] };
     }
 
     // Separate resident and mobile units
