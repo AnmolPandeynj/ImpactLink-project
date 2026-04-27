@@ -595,8 +595,8 @@ export default function Dashboard() {
                 volunteers={volunteers}
               />
             )}
-            {activeTab === 'analysis' && <AnalysisTab incidents={incidents} volunteers={volunteers} />}
-            {activeTab === 'ai_radar' && <AIRadarTab clusters={strategicClusters} incidents={incidents} />}
+            {activeTab === 'analysis' && <AnalysisTab incidents={mapPoints} volunteers={volunteers} />}
+            {activeTab === 'ai_radar' && <AIRadarTab clusters={strategicClusters} incidents={mapPoints} />}
             {activeTab === 'supplies' && <ResourceLogisticsTab project={currentProject} resources={supplies} onUpdateResource={handleUpdateResource} />}
             {activeTab === 'beneficiaries' && <BeneficiariesTab beneficiaries={beneficiaries} onView={(b) => {
               setSelectedBeneficiary(b);
@@ -980,6 +980,18 @@ function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispa
   if (viewMode === 'immersive') {
     return (
       <div style={{ position: 'relative', width: '100%', minHeight: 'calc(100vh - 4rem)', pointerEvents: 'none' }}>
+        {/* The Map itself spans full width behind */}
+        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0 }}>
+          <KineticMap 
+            isImmersive={true}
+            incidents={mapPoints} 
+            selectedIncident={selectedIncident} 
+            activeDispatches={activeDispatches} 
+            clusters={clusters}
+            volunteers={volunteers}
+          />
+        </div>
+        
         {/* Floating Stats */}
         <div style={{ position: 'absolute', top: '2rem', left: '0', pointerEvents: 'auto', background: 'rgba(25, 25, 25, 0.4)', backdropFilter: 'blur(32px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', padding: '1.25rem 2.5rem', boxShadow: '0 16px 40px rgba(0,0,0,0.6)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.625rem', color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '1rem' }}>
@@ -1021,7 +1033,7 @@ function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispa
         </div>
         <KineticMap 
           isImmersive={false}
-          incidents={incidents} 
+          incidents={mapPoints} 
           selectedIncident={selectedIncident} 
           activeDispatches={activeDispatches} 
           clusters={clusters}
@@ -1043,12 +1055,12 @@ function AnalysisTab({ incidents, volunteers }) {
           <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success)' }} />
           Multi-Sector Intelligence Synchronized
        </div>
-       <SectorPulseBoard incidents={incidents} volunteers={volunteers} />
+       <SectorPulseBoard incidents={mapPoints} volunteers={volunteers} />
        <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
-          <MisallocationRadar incidents={incidents} />
-          <AIGlobalAdvisory incidents={incidents} />
+          <MisallocationRadar incidents={mapPoints} />
+          <AIGlobalAdvisory incidents={mapPoints} />
        </div>
-       <RedeploymentStrategy incidents={incidents} volunteers={volunteers} />
+       <RedeploymentStrategy incidents={mapPoints} volunteers={volunteers} />
     </div>
   );
 }
