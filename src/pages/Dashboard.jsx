@@ -23,7 +23,10 @@ import {
   ChevronDown,
   Package,
   ChevronLeft,
-  List
+  List,
+  Mail,
+  Copy,
+  Check
 } from 'lucide-react';
 import BeneficiaryModal from '../components/Modals/BeneficiaryModal';
 import VolunteerModal from '../components/Modals/VolunteerModal';
@@ -197,6 +200,13 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const [copiedId, setCopiedId] = useState(null);
+  const copyToClipboard = (text, id) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
   // Allocation efficiency: prefer saturationRate from DB if available, else fallback to gap calc
@@ -592,10 +602,15 @@ export default function Dashboard() {
               setSelectedBeneficiary(b);
               setIsViewOpen(true);
             }} />}
-            {activeTab === 'volunteers' && <VolunteersTab volunteers={volunteers} onView={(v) => {
-              setSelectedVolunteer(v);
-              setIsVolunteerDetailOpen(true);
-            }} />}
+            {activeTab === 'volunteers' && <VolunteersTab 
+             volunteers={volunteers} 
+             onView={(v) => {
+               setSelectedVolunteer(v);
+               setIsVolunteerDetailOpen(true);
+             }}
+             copyToClipboard={copyToClipboard}
+             copiedId={copiedId}
+           />}
             {activeTab === 'ingestion' && <IngestionTab onIngest={handleIngestion} isIngesting={isIngesting} setIsIngesting={setIsIngesting} />}
           </motion.div>
         </AnimatePresence>
@@ -769,7 +784,7 @@ function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispa
       {!selectedMission && !selectedIncident ? (
         <>
           <div className="pane-header" style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '1.25rem 1.5rem', background: isImmersive ? 'rgba(0,0,0,0.2)' : 'transparent', position: 'sticky', top: 0, zIndex: 10 }}>
-             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontWeight: 600, letterSpacing: '0.05em' }}><Activity size={16} /> Strategic Missions</div>
+             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.75rem' }}><Activity size={16} /> STRATEGIC MISSIONS</div>
              <MoreHorizontal size={16} color="var(--text-dim)" />
           </div>
           
@@ -1392,7 +1407,7 @@ function BeneficiariesTab({ beneficiaries = [], onView }) {
   );
 }
 
-function VolunteersTab({ volunteers = [], onView }) {
+function VolunteersTab({ volunteers = [], onView, copyToClipboard, copiedId }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -1404,7 +1419,9 @@ function VolunteersTab({ volunteers = [], onView }) {
     return volunteers.filter(v => {
       if (!v) return false;
       const name = v.name || '';
-      const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase());
+      const email = v.email || (v.name ? v.name.toLowerCase().replace(/ /g, '.') + '@impactlink.dev' : '');
+      const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                           email.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus = statusFilter === 'ALL' || v.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
@@ -1421,6 +1438,20 @@ function VolunteersTab({ volunteers = [], onView }) {
 
   const [jumpVal, setJumpVal] = useState('');
   const [activeJump, setActiveJump] = useState(null);
+
+  const handleJump = (e) => {
+    if (e.key === 'Enter') {
+      const p = parseInt(jumpVal);
+      if (p >= 1 && p <= totalPages) {
+        setCurrentPage(p);
+        setActiveJump(null);
+        setJumpVal('');
+      }
+    } else if (e.key === 'Escape') {
+      setActiveJump(null);
+      setJumpVal('');
+    }
+  };
 
   const getRange = () => {
     const delta = 2;
@@ -1447,20 +1478,6 @@ function VolunteersTab({ volunteers = [], onView }) {
       l = i;
     }
     return finalRange;
-  };
-
-  const handleJump = (e) => {
-    if (e.key === 'Enter') {
-      const p = parseInt(jumpVal);
-      if (p >= 1 && p <= totalPages) {
-        setCurrentPage(p);
-        setActiveJump(null);
-        setJumpVal('');
-      }
-    } else if (e.key === 'Escape') {
-      setActiveJump(null);
-      setJumpVal('');
-    }
   };
 
   const renderPagination = (pos) => (
@@ -1571,7 +1588,34 @@ function VolunteersTab({ volunteers = [], onView }) {
                 <td style={{ padding: '1rem', color: 'var(--text-dim)', fontSize: '0.75rem', fontFamily: 'monospace' }}>
                    {(currentPage - 1) * itemsPerPage + idx + 1}
                 </td>
-                <td style={{ padding: '1rem', color: '#fff' }}>{v.name}</td>
+                 <td style={{ padding: '1rem', color: '#fff' }}>
+                   <div style={{ fontWeight: 600 }}>{v.name}</div>
+                   {(() => {
+                     const displayEmail = v.email || (v.name ? v.name.toLowerCase().replace(/ /g, '.') + '@impactlink.dev' : null);
+                     if (!displayEmail) return null;
+                     const isCopied = copiedId === v._id;
+                     return (
+                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600, fontSize: '0.7rem' }}>
+                         <Mail size={12} />
+                         <span>{displayEmail}</span>
+                         <button 
+                           onClick={(e) => { e.stopPropagation(); copyToClipboard(displayEmail, v._id); }}
+                           style={{ 
+                             background: 'rgba(255,255,255,0.05)', border: 'none', borderRadius: '4px', 
+                             padding: '0.2rem 0.4rem', cursor: 'pointer', display: 'flex', alignItems: 'center', 
+                             gap: '0.25rem', color: isCopied ? 'var(--success)' : 'var(--text-dim)',
+                             transition: 'all 0.2s'
+                           }}
+                           title="Copy Email"
+                         >
+                           {isCopied ? <Check size={10} /> : <Copy size={10} />}
+                           {isCopied && <span style={{ fontSize: '0.55rem' }}>Copied!</span>}
+                         </button>
+                         <span style={{ fontSize: '0.6rem', color: 'var(--text-dim)', fontWeight: 400, marginLeft: '0.25rem' }}>pw: 123456</span>
+                       </div>
+                     );
+                   })()}
+                 </td>
                 <td style={{ padding: '1rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: v.status === 'Deployed' ? '#34d399' : '#fff' }}>
                     <div style={{ width: '4px', height: '4px', background: v.status === 'Deployed' ? '#34d399' : '#fff', borderRadius: '50%' }}/> 

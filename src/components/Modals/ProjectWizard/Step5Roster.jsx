@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Users, MapPin, Plane, Award, CheckCircle2, Loader2, Sparkles, Star, Zap, ShieldCheck, TrendingUp } from 'lucide-react';
+import { Users, MapPin, Plane, Award, CheckCircle2, Loader2, Sparkles, Star, Zap, ShieldCheck, TrendingUp, Mail, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchVolunteers } from '../../../services/api';
 import { calculateHaversineDistance } from '../../../services/logic';
@@ -24,6 +24,7 @@ export default function Step5Roster({ data, update }) {
   const [volunteers, setVolunteers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0); // Region Index
+  const [copiedId, setCopiedId] = useState(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -38,6 +39,12 @@ export default function Step5Roster({ data, update }) {
     };
     loadData();
   }, []);
+
+  const copyToClipboard = (text, id) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const toggleVolunteer = (regionIdx, volunteerId, type) => {
     try {
@@ -241,6 +248,8 @@ export default function Step5Roster({ data, update }) {
             regionIdx={activeTab}
             isLoading={isLoading}
             data={data}
+            copiedId={copiedId}
+            copyToClipboard={copyToClipboard}
           />
 
           {/* TRAVEL DRAFTBOARD */}
@@ -256,13 +265,15 @@ export default function Step5Roster({ data, update }) {
             regionIdx={activeTab}
             isLoading={isLoading}
             data={data}
+            copiedId={copiedId}
+            copyToClipboard={copyToClipboard}
           />
        </div>
     </div>
   );
 }
 
-function DraftSection({ title, icon: Icon, type, color, target, candidates, selectedRoster, onToggle, regionIdx, isLoading, data }) {
+function DraftSection({ title, icon: Icon, type, color, target, candidates, selectedRoster, onToggle, regionIdx, isLoading, data, copiedId, copyToClipboard }) {
   const selectedCount = selectedRoster.filter(r => r.regionIndex === regionIdx && r.type === type).length;
   const isOverQuota = selectedCount > target;
   const isTargetMet = selectedCount >= target && target > 0;
@@ -369,7 +380,22 @@ function DraftSection({ title, icon: Icon, type, color, target, candidates, sele
                           )}
                         </div>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', fontWeight: 500, marginTop: '2px' }}>{v.skills.slice(0, 3).join(' • ')}</div>
-                        {v.email && <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 600, marginTop: '2px' }}>{v.email}</div>}
+                        {v.email && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '4px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 600 }}>{v.email}</div>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); copyToClipboard(v.email, v._id); }}
+                              style={{ 
+                                background: 'rgba(255,255,255,0.05)', border: 'none', borderRadius: '4px', 
+                                padding: '0.15rem 0.3rem', cursor: 'pointer', display: 'flex', alignItems: 'center', 
+                                gap: '0.2rem', color: copiedId === v._id ? 'var(--success)' : 'var(--text-dim)',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              {copiedId === v._id ? <Check size={8} /> : <Copy size={8} />}
+                            </button>
+                          </div>
+                        )}
                       </div>
                  </div>
                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
