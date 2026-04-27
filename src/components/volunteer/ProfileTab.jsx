@@ -8,10 +8,12 @@ import {
   ShieldCheck, 
   ChevronRight,
   Info,
-  Check
+  Check,
+  MapPin
 } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import { updateMyProfile } from '../../services/volunteerApi';
+import { formatCoords } from '../../services/coordResolver';
 
 export default function ProfileTab() {
   const { appUser, refreshUser } = useAuth();
@@ -68,6 +70,27 @@ export default function ProfileTab() {
          <p style={{ color: 'var(--text-dim)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
            Tactical ID: {volInfo?._id?.toString().slice(-8).toUpperCase()}
          </p>
+         {/* Last Known Position */}
+         {volInfo?.liveLocation?.lat != null ? (
+           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.5rem', color: '#10b981', fontSize: '0.75rem', fontFamily: 'monospace', fontWeight: 600 }}>
+             <MapPin size={11} />
+             {formatCoords(volInfo.liveLocation.lat, volInfo.liveLocation.lng)}
+             {volInfo.liveLocation.updatedAt && (
+               <span style={{ color: 'var(--text-dim)', fontFamily: 'inherit', fontWeight: 400, marginLeft: '0.25rem' }}>
+                 · {(() => {
+                   const mins = Math.floor((Date.now() - new Date(volInfo.liveLocation.updatedAt).getTime()) / 60000);
+                   if (mins < 1) return 'just now';
+                   if (mins < 60) return `${mins}m ago`;
+                   return `${Math.floor(mins / 60)}h ago`;
+                 })()}
+               </span>
+             )}
+           </div>
+         ) : (
+           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.5rem', color: 'var(--text-dim)', fontSize: '0.7rem' }}>
+             <MapPin size={11} /> Location not yet shared
+           </div>
+         )}
       </header>
 
       {/* Skills Selection */}

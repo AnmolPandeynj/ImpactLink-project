@@ -28,6 +28,7 @@ const mongoose = require('mongoose');
 const Event = require('../models/Event');
 const Volunteer = require('../models/Volunteer');
 const AuditLog = require('../models/AuditLog');
+const { resolveVolunteerCoords } = require('./coordResolver');
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -141,11 +142,11 @@ function softmaxSelect(candidates, τ = SOFTMAX_TEMPERATURE) {
 // ─── ETA Estimation ─────────────────────────────────────────────────────────
 
 function estimateETA(volunteer, mission) {
-  const distKm = haversineDistance(
-    volunteer.locationId?.lat ?? volunteer.lat ?? 0,
-    volunteer.locationId?.lng ?? volunteer.lng ?? 0,
-    mission.lat, mission.lng
-  );
+  // Use shared resolver: liveLocation (GPS, if fresh) → homeGeo → locationId (hub)
+  const coords = resolveVolunteerCoords(volunteer);
+  if (!coords) return Infinity; // No coordinates → cannot estimate, treat as unreachable
+
+  const distKm = haversineDistance(coords.lat, coords.lng, mission.lat, mission.lng);
   const speedKmH = {
     foot: 5, bike: 25, car: 60, truck: 45, helicopter: 200,
   }[volunteer.transportClass] || 50;

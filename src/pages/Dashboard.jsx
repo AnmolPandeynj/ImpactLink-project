@@ -48,6 +48,7 @@ import { logout } from '../services/firebase';
 import { resolveCoordinates } from '../services/coordinates';
 import * as api from '../services/api';
 import { dbscan, aggregateClusters } from '../services/clustering';
+import { formatCoords } from '../services/coordResolver';
 
 /**
  * Utility: Format a date to relative time string
@@ -1577,7 +1578,30 @@ function VolunteersTab({ volunteers = [], onView }) {
                     {v.status}
                   </div>
                 </td>
-                <td style={{ padding: '1rem', color: 'var(--text-muted)' }}>{v.locationId?.name || 'Unassigned Hub'}</td>
+                <td style={{ padding: '1rem' }}>
+                  {v.liveLocation?.lat != null ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+                        <span style={{ fontFamily: 'monospace', fontSize: '0.72rem', color: '#10b981', fontWeight: 600 }}>
+                          {formatCoords(v.liveLocation.lat, v.liveLocation.lng)}
+                        </span>
+                      </div>
+                      {v.liveLocation.updatedAt && (
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-dim)', paddingLeft: '0.9rem' }}>
+                          {(() => {
+                            const mins = Math.floor((Date.now() - new Date(v.liveLocation.updatedAt).getTime()) / 60000);
+                            if (mins < 1) return 'just now';
+                            if (mins < 60) return `${mins}m ago`;
+                            return `${Math.floor(mins / 60)}h ago`;
+                          })()}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>{v.locationId?.name || 'Unassigned Hub'}</span>
+                  )}
+                </td>
                 <td style={{ padding: '1rem', color: 'var(--text-dim)', fontSize: '0.75rem' }}>{v.skills?.join(', ') || 'Generalist'}</td>
                 <td style={{ padding: '1rem', textAlign: 'right' }}>
                   <button 

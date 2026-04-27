@@ -93,7 +93,17 @@ const volunteerSchema = new mongoose.Schema({
     default: [],
     select: false // Avoid pulling large vector arrays in every query unless needed
   },
-  lastEmbeddedAt: { type: Date, default: null }
+  lastEmbeddedAt: { type: Date, default: null },
+
+  // ── Live GPS Location (Volunteer-reported via browser Geolocation API) ─────
+  // Separate from locationId (admin-assigned hub). Updated when volunteer taps
+  // "Share Location" or auto-updates while en_route/on_site.
+  liveLocation: {
+    lat:       { type: Number, default: null },
+    lng:       { type: Number, default: null },
+    accuracy:  { type: Number, default: null }, // metres, from browser Geolocation API
+    updatedAt: { type: Date,   default: null }  // timestamp of last share
+  }
 });
 
 module.exports = mongoose.model('Volunteer', volunteerSchema);

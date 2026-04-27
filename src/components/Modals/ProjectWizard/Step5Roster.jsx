@@ -3,6 +3,7 @@ import { Users, MapPin, Plane, Award, CheckCircle2, Loader2, Sparkles, Star, Zap
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchVolunteers } from '../../../services/api';
 import { calculateHaversineDistance } from '../../../services/logic';
+import { resolveVolunteerCoords } from '../../../services/coordResolver';
 
 const ExperienceBadge = ({ level }) => {
   const colors = {
@@ -58,31 +59,28 @@ export default function Step5Roster({ data, update }) {
   const getFilteredVolunteers = (regionIdx, type) => {
     if (!volunteers || !volunteers.length) return [];
     
-    // STRATEGIC: Prevent crash if regions are missing or index is out of bounds
     const region = data?.regions?.[regionIdx];
     const center = region?.center || { lat: 0, lng: 0 };
-    const radius = region?.radius || 10000; // Default to global if no radius
-
+    const radius = region?.radius || 10000;
     const { lat, lng } = center;
 
-    // STRATEGIC: Show all active volunteers, but calculate proximity for context
     const list = volunteers
       .filter(v => v && v.status === 'Active')
       .map(v => {
-        const vLat = v.locationId?.lat;
-        const vLng = v.locationId?.lng;
+        // Use shared resolver: GPS (if fresh) → homeGeo → hub
+        const coords = resolveVolunteerCoords(v);
+        const hasGPS = v.liveLocation?.lat != null;
         let distance = null;
         let isInRange = false;
         
-        if (vLat && vLng && lat !== 0 && lng !== 0) {
-          distance = calculateHaversineDistance(lat, lng, vLat, vLng);
+        if (coords && lat !== 0 && lng !== 0) {
+          distance = calculateHaversineDistance(lat, lng, coords.lat, coords.lng);
           isInRange = distance <= radius;
         }
 
-        return { ...v, distance, isInRange };
+        return { ...v, distance, isInRange, hasGPS };
       });
 
-    // TACTICAL: Sort by Proximity for Local, and by AI Match for both
     if (type === 'local') {
       return list.sort((a, b) => {
         if (a.isInRange && !b.isInRange) return -1;
@@ -363,6 +361,11 @@ function DraftSection({ title, icon: Icon, type, color, target, candidates, sele
                           <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#fff', whiteSpace: 'nowrap' }}>{v.name}</div>
                           {type === 'local' && v.isInRange && (
                             <div style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', background: 'rgba(52, 211, 153, 0.15)', color: '#34d399', fontSize: '0.55rem', fontWeight: 900 }}>LOCAL</div>
+                          )}
+                          {v.hasGPS && (
+                            <div style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', background: 'rgba(255,255,255,0.07)', color: '#fff', fontSize: '0.55rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                              <MapPin size={8} /> GPS
+                            </div>
                           )}
                         </div>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', fontWeight: 500, marginTop: '2px' }}>{v.skills.slice(0, 3).join(' • ')}</div>

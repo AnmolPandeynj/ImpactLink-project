@@ -56,3 +56,25 @@ export const getActiveAssignmentDetails = async (assignmentId) => {
   if (!res.ok) throw new Error(`Assignment details failed: ${res.status}`);
   return res.json();
 };
+
+/**
+ * Push the volunteer's current GPS coordinates to the backend.
+ * Called on manual "Share Location" tap, and auto-called every 60s while en_route/on_site.
+ *
+ * @param {number} lat
+ * @param {number} lng
+ * @param {number|null} accuracy - metres, from browser Geolocation API
+ */
+export const shareMyLocation = async (lat, lng, accuracy = null) => {
+  const res = await fetch(`${API_BASE_URL}/api/volunteer/me/location`, {
+    method: 'POST',
+    headers: await getAuthHeaders(),
+    body: JSON.stringify({ lat, lng, accuracy })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Location share failed: ${res.status}`);
+  }
+  return res.json();
+};
+

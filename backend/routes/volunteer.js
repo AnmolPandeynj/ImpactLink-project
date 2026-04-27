@@ -107,7 +107,8 @@ router.patch('/volunteer/me', checkRole('Volunteer'), async (req, res) => {
   try {
     const allowedUpdates = [
       'availability', 'skills', 'vehicleType', 'vehicleCapacity',
-      'travelRadiusKm', 'emergencyContact', 'contactPhone', 'address'
+      'travelRadiusKm', 'emergencyContact', 'contactPhone', 'address',
+      'liveLocation'
     ];
     
     const updates = {};
@@ -126,6 +127,53 @@ router.patch('/volunteer/me', checkRole('Volunteer'), async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+/**
+ * POST /api/volunteer/me/location
+ * Volunteers push their current GPS coordinates.
+ * Called manually ("Share Location" button) or automatically while en_route/on_site.
+ */
+router.post('/volunteer/me/location', checkRole('Volunteer'), async (req, res) => {
+  try {
+    const { lat, lng, accuracy } = req.body;
+
+    // Validate coordinate bounds
+    if (lat == null || lng == null) {
+      return res.status(400).json({ error: 'lat and lng are required.' });
+    }
+    if (lat < -90 || lat > 90) {
+      return res.status(400).json({ error: 'lat must be between -90 and 90.' });
+    }
+    if (lng < -180 || lng > 180) {
+      return res.status(400).json({ error: 'lng must be between -180 and 180.' });
+    }
+
+    const now = new Date();
+    const vol = await Volunteer.findByIdAndUpdate(
+      req.impactUser.linkedVolunteerId,
+      {
+        $set: {
+          'liveLocation.lat':       parseFloat(lat),
+          'liveLocation.lng':       parseFloat(lng),
+          'liveLocation.accuracy':  accuracy ? parseFloat(accuracy) : null,
+          'liveLocation.updatedAt': now,
+          lastActive: now
+        }
+      },
+      { new: true }
+    );
+
+    if (!vol) return res.status(404).json({ error: 'Volunteer profile not found.' });
+
+    res.json({
+      success: true,
+      liveLocation: vol.liveLocation
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // ─── ASSIGNMENT LIFECYCLE ────────────────────────────────────────────────
 

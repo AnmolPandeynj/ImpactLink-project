@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, HandHeart, Phone, MapPin, Zap, ShieldCheck, Award, Star, TrendingUp, CheckCircle2, Clock, Calendar, Truck, Navigation, Activity, Mail, Copy, Check } from 'lucide-react';
 import { fetchLocations } from '../../services/api';
+import { resolveVolunteerCoords, formatCoords, getCoordSourceLabel } from '../../services/coordResolver';
 
 const ScoreCard = ({ label, value, icon: Icon, color, subValue }) => (
   <div style={{ 
@@ -226,6 +227,43 @@ export default function VolunteerModal({ isOpen, onClose, initialData = null }) 
                         <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)' }}>Tactical Radius: {initialData.travelRadius}km</div>
                       </div>
                     </div>
+
+                    {/* Last Known Position */}
+                    {(() => {
+                      const coords = resolveVolunteerCoords(initialData);
+                      if (!coords) {
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', background: 'rgba(0,0,0,0.2)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                            <MapPin size={13} color="var(--text-dim)" />
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontStyle: 'italic' }}>Location not shared</span>
+                          </div>
+                        );
+                      }
+                      const isGPS = coords.source === 'gps';
+                      const ll = initialData.liveLocation;
+                      return (
+                        <div style={{ padding: '0.75rem', background: isGPS ? 'rgba(16,185,129,0.05)' : 'rgba(0,0,0,0.2)', borderRadius: '10px', border: `1px solid ${isGPS ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.03)'}` }}>
+                          <div style={{ fontSize: '0.6rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Last Known Position</span>
+                            <span style={{ color: isGPS ? '#10b981' : 'var(--text-dim)', fontWeight: 700 }}>{getCoordSourceLabel(coords.source)}</span>
+                          </div>
+                          <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: isGPS ? '#10b981' : '#fff', fontWeight: 600 }}>
+                            {formatCoords(coords.lat, coords.lng)}
+                          </div>
+                          {isGPS && ll?.updatedAt && (
+                            <div style={{ fontSize: '0.62rem', color: 'var(--text-dim)', marginTop: '0.25rem' }}>
+                              {(() => {
+                                const mins = Math.floor((Date.now() - new Date(ll.updatedAt).getTime()) / 60000);
+                                if (mins < 1) return 'just now';
+                                if (mins < 60) return `${mins}m ago`;
+                                return `${Math.floor(mins / 60)}h ago`;
+                              })()}
+                              {ll.accuracy && ` · ±${Math.round(ll.accuracy)}m`}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     
                     <div style={{ display: 'flex', gap: '1rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.03)' }}>
                        <div style={{ flex: 1 }}>
