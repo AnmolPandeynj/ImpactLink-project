@@ -78,3 +78,15 @@ export const shareMyLocation = async (lat, lng, accuracy = null) => {
   return res.json();
 };
 
+/**
+ * Fetch the volunteer's current active mission (Event) for navigation rendering.
+ * Returns { mission, volunteer } or { mission: null } when unassigned.
+ * Kept separate from getMyVolunteerProfile to avoid inflating the 30s polling payload.
+ */
+export const getMyMission = async () => {
+  const res = await fetch(`${API_BASE_URL}/api/volunteer/me/mission`, {
+    headers: await getAuthHeaders()
+  });
+  if (!res.ok) throw new Error(`Mission fetch failed: ${res.status}`);
+  return res.json();
+};

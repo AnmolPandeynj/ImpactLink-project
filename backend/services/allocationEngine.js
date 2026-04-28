@@ -155,44 +155,10 @@ function estimateETA(volunteer, mission) {
 
 // ─── PASS 1: Resident Assignment ─────────────────────────────────────────────
 
-/**
- * Greedy resident assignment within each hub's geographic boundary.
- *
- * For each hub:
- *   1. Filter missions overlapping hub radius
- *   2. Score each mission: skill_match × (1 / distance_km)
- *   3. Greedy assign until responder maxLoad or mission saturation threshold
- *   4. Flag missions with saturation < SATURATION_THRESHOLD as "open_gap"
- *   5. If hub has more residents than missions, attempt +30km expansion once
- *
- * @param {Array} missions - Array of Event documents (lean)
- * @param {Array} residents - Array of Volunteer documents (populated, lean)
- * @returns {{ assignments: Map, openGaps: Array, missionStates: Map }}
- */
 async function runPass1_Resident(missions, residents) {
-  // Track: missionId → { saturationRate, assignedCount, resourceGapMet }
   const missionStates = new Map();
-  // Track: assignmentId → { missionId, volunteerId }
   const assignments = [];
-  // Track volunteer load
   const volunteerLoad = new Map(residents.map(v => [String(v._id), 0]));
-
-  // Group residents by their hub location
-  const hubGroups = new Map();
-  for (const vol of residents) {
-    const hubKey = String(vol.hubId || vol.locationId?._id || 'unknown');
-    if (!hubGroups.has(hubKey)) {
-      hubGroups.set(hubKey, {
-        hubId: hubKey,
-        lat: vol.locationId?.lat ?? 0,
-        lng: vol.locationId?.lng ?? 0,
-        radius: RESIDENT_MAX_RADIUS_KM,
-        volunteers: [],
-        _expandedOnce: false,
-      });
-    }
-    hubGroups.get(hubKey).volunteers.push(vol);
-  }
 
   // Initialize mission states
   for (const m of missions) {
@@ -204,7 +170,46 @@ async function runPass1_Resident(missions, residents) {
     });
   }
 
+  // Group residents by hub, computing hub center from the average of member coords
+  // This prevents the (0,0) Gulf of Guinea bug when locationId has no lat/lng.
+  const hubGroups = new Map();
+  for (const vol of residents) {
+    const hubKey = String(vol.hubId || vol.locationId?._id || 'unknown');
+    const coords = resolveVolunteerCoords(vol);
+    
+    if (!hubGroups.has(hubKey)) {
+      hubGroups.set(hubKey, {
+        hubId: hubKey,
+        // Use locationId coords if valid, otherwise start at null — will be averaged from members
+        lat: (vol.locationId?.lat && vol.locationId.lat !== 0) ? vol.locationId.lat : null,
+        lng: (vol.locationId?.lng && vol.locationId.lng !== 0) ? vol.locationId.lng : null,
+        radius: RESIDENT_MAX_RADIUS_KM,
+        volunteers: [],
+        _expandedOnce: false,
+        _memberCoords: []
+      });
+    }
+    const hub = hubGroups.get(hubKey);
+    hub.volunteers.push(vol);
+    // Collect resolved coords so we can compute a centroid if hub.lat is null
+    if (coords) hub._memberCoords.push(coords);
+  }
+
+  // For hubs without valid lat/lng from the location ref, use the centroid of member coords
   for (const [, hub] of hubGroups) {
+    if ((hub.lat == null || hub.lat === 0) && hub._memberCoords.length > 0) {
+      hub.lat = hub._memberCoords.reduce((s, c) => s + c.lat, 0) / hub._memberCoords.length;
+      hub.lng = hub._memberCoords.reduce((s, c) => s + c.lng, 0) / hub._memberCoords.length;
+    }
+  }
+
+  for (const [, hub] of hubGroups) {
+    // If hub center is still invalid (no volunteer has any coords), skip
+    if (!hub.lat || !hub.lng) {
+      console.warn(`[Allocation] Hub ${hub.hubId} has no resolvable coordinates — skipping.`);
+      continue;
+    }
+
     // Step 1: Find missions within hub radius
     let localMissions = missions.filter(m => {
       if (!m.lat || !m.lng) return false;
@@ -218,13 +223,12 @@ async function runPass1_Resident(missions, residents) {
       localMissions = missions.filter(m => {
         if (!m.lat || !m.lng) return false;
         const dist = haversineDistance(hub.lat, hub.lng, m.lat, m.lng);
-        return dist <= expandedRadius && dist > hub.radius;
+        return dist <= expandedRadius;
       });
     }
 
     if (localMissions.length === 0) continue;
 
-    // Step 2: For each available volunteer in hub, score all local missions
     const availableVolunteers = hub.volunteers.filter(v => {
       const load = volunteerLoad.get(String(v._id)) ?? 0;
       return v.status !== 'Inactive' && load < (v.maxLoad || 3);
@@ -234,14 +238,18 @@ async function runPass1_Resident(missions, residents) {
       const currentLoad = volunteerLoad.get(String(vol._id)) ?? 0;
       if (currentLoad >= (vol.maxLoad || 3)) continue;
 
-      // Score missions for this volunteer: skill_match × (1 / distance_km)
+      // Use volunteer's actual resolved coords for distance scoring if available
+      const volCoords = resolveVolunteerCoords(vol);
+      const scoringLat = volCoords?.lat ?? hub.lat;
+      const scoringLng = volCoords?.lng ?? hub.lng;
+
       const scoredMissions = localMissions
         .filter(m => {
           const state = missionStates.get(String(m._id));
           return state && state.saturationRate < SATURATION_THRESHOLD;
         })
         .map(m => {
-          const distKm = Math.max(0.1, haversineDistance(hub.lat, hub.lng, m.lat, m.lng));
+          const distKm = Math.max(0.1, haversineDistance(scoringLat, scoringLng, m.lat, m.lng));
           const skillMatch = getSkillMatchScore(vol.skills, m.eventType || m.needType);
           const proximityScore = 1 / distKm;
           const decayedPriority = calculateDecayedPriorityScore(m);
@@ -256,7 +264,6 @@ async function runPass1_Resident(missions, residents) {
 
       if (scoredMissions.length === 0) continue;
 
-      // Step 3: Greedy assign to top-scoring unsaturated mission
       const best = scoredMissions[0];
       const mId = String(best.mission._id);
       const state = missionStates.get(mId);
@@ -270,10 +277,8 @@ async function runPass1_Resident(missions, residents) {
         score: best.score,
       });
 
-      // Update load and saturation
       volunteerLoad.set(String(vol._id), currentLoad + 1);
       state.assignedCount += 1;
-      // Each volunteer fills a portion of the gap (simplified: 1 volunteer ≈ 1/resourceGap of capacity)
       const fillRate = 1 / Math.max(1, state.totalResourceGap);
       state.resourceGapMet = Math.min(1, state.resourceGapMet + fillRate);
       state.saturationRate = state.resourceGapMet;
@@ -281,7 +286,7 @@ async function runPass1_Resident(missions, residents) {
     }
   }
 
-  // Step 4: Flag open gaps (<60% saturation)
+  // Step 4: Flag open gaps (< 60% saturation)
   const openGaps = missions
     .filter(m => {
       const state = missionStates.get(String(m._id));
@@ -292,12 +297,13 @@ async function runPass1_Resident(missions, residents) {
       const gapDelta = (m.resourceGap || 5) * (1 - (state?.saturationRate || 0));
       return { ...m, saturationRate: state?.saturationRate || 0, gapDelta };
     })
-    .sort((a, b) => b.gapDelta - a.gapDelta); // Sorted by Gap Delta descending
+    .sort((a, b) => b.gapDelta - a.gapDelta);
 
   return { assignments, openGaps, missionStates };
 }
 
 // ─── PASS 2: Mobile Dispatch ──────────────────────────────────────────────────
+
 
 /**
  * Probabilistic mobile fleet dispatch for open-gap missions.
@@ -344,12 +350,16 @@ async function runPass2_Mobile(openGaps, mobileUnits) {
         if (v.status === 'Inactive') return false;
         if ((mobileLoad.get(String(v._id)) ?? 0) >= (v.maxLoad || 3)) return false;
 
+        const coords = resolveVolunteerCoords(v);
+        if (!coords) return false;
+
         const distKm = haversineDistance(
-          v.locationId?.lat ?? 0,
-          v.locationId?.lng ?? 0,
+          coords.lat,
+          coords.lng,
           currentGap.lat,
           currentGap.lng
         );
+        
         if (distKm > MOBILE_MAX_RADIUS_KM) return false;
 
         // Check transport feasibility for the distance
@@ -360,9 +370,10 @@ async function runPass2_Mobile(openGaps, mobileUnits) {
         return distKm <= transportRange;
       })
       .map(v => {
+        const coords = resolveVolunteerCoords(v);
         const distKm = haversineDistance(
-          v.locationId?.lat ?? 0,
-          v.locationId?.lng ?? 0,
+          coords.lat,
+          coords.lng,
           currentGap.lat,
           currentGap.lng
         );
@@ -454,7 +465,7 @@ async function persistAllocationResult(pass1Result, pass2Result, missionStates) 
           },
           $addToSet: {
             assignedResponders: {
-              $each: pass1Result.assignments
+              $each: [...pass1Result.assignments, ...pass2Result.dispatches]
                 .filter(a => String(a.missionId) === missionId)
                 .map(a => a.volunteerId),
             },
@@ -474,17 +485,32 @@ async function persistAllocationResult(pass1Result, pass2Result, missionStates) 
     });
   }
 
-  // Update volunteer currentLoad
+  // Update volunteer currentLoad and set highest-priority mission as currentAssignmentId
   const loadMap = new Map();
-  [...pass1Result.assignments, ...pass2Result.dispatches].forEach(a => {
+  const allAssignments = [...pass1Result.assignments, ...pass2Result.dispatches];
+
+  allAssignments.forEach(a => {
     const id = String(a.volunteerId);
     loadMap.set(id, (loadMap.get(id) || 0) + 1);
   });
+
   for (const [volId, load] of loadMap) {
+    // Sort all assignments for this volunteer by score descending → pick the highest-priority mission
+    // Pass 1 uses `score`, Pass 2 uses `allocationScore` — normalize with fallback to 0
+    const topMission = allAssignments
+      .filter(a => String(a.volunteerId) === volId)
+      .sort((a, b) => (b.score || b.allocationScore || 0) - (a.score || a.allocationScore || 0))[0];
+
     bulkVolunteerOps.push({
       updateOne: {
-        filter: { _id: volId },
-        update: { $inc: { currentLoad: load } },
+        filter: { _id: new mongoose.Types.ObjectId(volId) },
+        update: {
+          $inc: { currentLoad: load },
+          $set: {
+            currentAssignmentId: new mongoose.Types.ObjectId(String(topMission.missionId)),
+            assignmentStatus: 'pending_accept',
+          },
+        },
       },
     });
   }
@@ -515,8 +541,112 @@ async function runAllocation(projectId, userId = null) {
   const startTime = Date.now();
 
   try {
+    // ── Auto-Generate Missions from Beneficiary Clusters ───────────────────
+    if (projectId) {
+      // Check if we need to auto-generate events for this project
+      const existingEventsCount = await Event.countDocuments({ projectId });
+      
+      if (existingEventsCount === 0) {
+        const Beneficiary = require('../models/Beneficiary');
+        
+        // Find beneficiaries with coordinates
+        const beneficiaries = await Beneficiary.find({ 
+          projectId, 
+          'geo.lat': { $ne: null }, 
+          'geo.lng': { $ne: null } 
+        }).lean();
+
+        if (beneficiaries.length > 0) {
+          const { dbscan } = require('./clustering');
+          const coords = beneficiaries.map(b => ({ lat: b.geo.lat, lng: b.geo.lng }));
+          
+          // Cluster beneficiaries into missions (eps: ~2km, min 3 points per cluster)
+          const labels = dbscan(coords, 0.02, 3);
+          
+          const clustersMap = {};
+          beneficiaries.forEach((b, i) => {
+            const clusterId = labels[i];
+            if (clusterId === -1) return; // ignore noise
+            
+            if (!clustersMap[clusterId]) {
+              clustersMap[clusterId] = { lat: 0, lng: 0, count: 0, severity: 0, needs: {} };
+            }
+            const c = clustersMap[clusterId];
+            c.lat += b.geo.lat;
+            c.lng += b.geo.lng;
+            c.count += 1;
+            
+            const sevScore = b.needSeverity === 'high' ? 9 : (b.needSeverity === 'medium' ? 6 : 3);
+            c.severity += sevScore;
+            
+            const need = b.primaryNeed || 'General';
+            c.needs[need] = (c.needs[need] || 0) + 1;
+          });
+          
+          const newEvents = Object.values(clustersMap).map(c => {
+            const primaryNeed = Object.keys(c.needs).reduce((a, b) => c.needs[a] > c.needs[b] ? a : b);
+            const avgSeverity = Math.min(10, Math.round(c.severity / c.count));
+            
+            return {
+              projectId,
+              eventType: primaryNeed,
+              severity: avgSeverity,
+              resourceGap: Math.min(10, Math.max(1, Math.ceil(c.count / 5))),
+              frequency: 5,
+              timeSensitivity: avgSeverity,
+              lat: c.lat / c.count,
+              lng: c.lng / c.count,
+              allocationStatus: 'unassigned',
+              eventTime: new Date()
+            };
+          });
+          
+          if (newEvents.length > 0) {
+            await Event.insertMany(newEvents);
+            console.log(`[Allocation] Auto-generated ${newEvents.length} mission events from ${beneficiaries.length} beneficiaries.`);
+          }
+        }
+      }
+    }
+
+    // ── Reset Stale Assignments ────────────────────────────────────────────
+    // Clear previous allocation results for volunteers in this project scope
+    // so assignments from a prior project/run don't bleed through.
+    const staleVolunteerQuery = projectId
+      ? { projectIds: projectId, assignmentStatus: { $ne: 'unassigned' } }
+      : { assignmentStatus: { $ne: 'unassigned' } };
+    
+    const staleVolunteers = await Volunteer.find(staleVolunteerQuery, '_id currentAssignmentId').lean();
+    
+    if (staleVolunteers.length > 0) {
+      // Only reset if their current assignment belongs to an event in THIS project scope
+      // (prevents clearing a volunteer assigned to a different active project)
+      const staleEventIds = staleVolunteers
+        .map(v => v.currentAssignmentId)
+        .filter(Boolean);
+      
+      const eventQuery2 = { _id: { $in: staleEventIds } };
+      if (projectId) eventQuery2.projectId = projectId;
+      
+      const ownedEventIds = new Set(
+        (await Event.find(eventQuery2, '_id').lean()).map(e => String(e._id))
+      );
+      
+      const volunteerIdsToReset = staleVolunteers
+        .filter(v => !v.currentAssignmentId || ownedEventIds.has(String(v.currentAssignmentId)))
+        .map(v => v._id);
+      
+      if (volunteerIdsToReset.length > 0) {
+        await Volunteer.updateMany(
+          { _id: { $in: volunteerIdsToReset } },
+          { $set: { currentAssignmentId: null, assignmentStatus: 'unassigned', currentLoad: 0 } }
+        );
+        console.log(`[Allocation] Reset ${volunteerIdsToReset.length} stale volunteer assignment(s) before fresh run.`);
+      }
+    }
+
     // ── Load Data ──────────────────────────────────────────────────────────
-    const eventQuery = { allocationStatus: { $in: ['unassigned', 'partially_saturated'] } };
+    const eventQuery = { allocationStatus: { $in: ['unassigned', 'partially_saturated', 'critical_unmet'] } };
     if (projectId) eventQuery.projectId = projectId;
 
     const [missions, allVolunteers] = await Promise.all([
@@ -527,7 +657,16 @@ async function runAllocation(projectId, userId = null) {
     ]);
 
     if (missions.length === 0) {
-      return { success: true, message: 'No unassigned missions to allocate.', assignments: [], dispatches: [] };
+      return { 
+        success: true, 
+        message: 'No unassigned missions to allocate. Provide beneficiary data or manual events.', 
+        assignments: [], 
+        dispatches: [],
+        pass1: { assignments: 0, openGaps: 0 },
+        pass2: { dispatches: 0, reserves: 0, criticalUnmet: 0 },
+        allocationEfficiency: 100,
+        timestamp: new Date().toISOString()
+      };
     }
 
     // Separate resident and mobile units

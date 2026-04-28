@@ -5,6 +5,10 @@ import {
   Trash2, 
   Plus, 
   Truck, 
+  Car,
+  Bike,
+  Ship,
+  Navigation,
   ShieldCheck, 
   ChevronRight,
   Info,
@@ -126,27 +130,35 @@ export default function ProfileTab() {
           background: '#111', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.05)',
           overflow: 'hidden'
         }}>
-          {['none', 'car', 'suv', 'truck', 'van'].map(t => (
-            <div 
-              key={t}
-              onClick={() => setVehicle(t)}
-              style={{
-                padding: '1.25rem 1.5rem', display: 'flex', alignItems: 'center', gap: '1rem',
-                borderBottom: '1px solid rgba(255,255,255,0.02)', cursor: 'pointer',
-                background: vehicle === t ? 'rgba(255,255,255,0.02)' : 'transparent'
-              }}
-            >
-              <div style={{ 
-                width: '40px', height: '40px', borderRadius: '10px',
-                background: vehicle === t ? 'rgba(245, 158, 11, 0.1)' : 'rgba(255,255,255,0.03)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center'
-              }}>
-                <Truck size={20} color={vehicle === t ? '#F59E0B' : 'var(--text-dim)'} />
+          {['none', 'motorcycle', 'car', 'suv', 'van', 'truck', 'boat'].map(t => {
+            let Icon = Truck;
+            if (t === 'car' || t === 'suv' || t === 'van') Icon = Car;
+            if (t === 'motorcycle') Icon = Bike;
+            if (t === 'boat') Icon = Ship;
+            if (t === 'none') Icon = Navigation;
+
+            return (
+              <div 
+                key={t}
+                onClick={() => setVehicle(t)}
+                style={{
+                  padding: '1.25rem 1.5rem', display: 'flex', alignItems: 'center', gap: '1rem',
+                  borderBottom: '1px solid rgba(255,255,255,0.02)', cursor: 'pointer',
+                  background: vehicle === t ? 'rgba(255,255,255,0.02)' : 'transparent'
+                }}
+              >
+                <div style={{ 
+                  width: '40px', height: '40px', borderRadius: '10px',
+                  background: vehicle === t ? 'rgba(245, 158, 11, 0.1)' : 'rgba(255,255,255,0.03)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <Icon size={20} color={vehicle === t ? '#F59E0B' : 'var(--text-dim)'} />
+                </div>
+                <div style={{ flex: 1, textTransform: 'capitalize', fontWeight: 600 }}>{t}</div>
+                {vehicle === t && <Check size={20} color="#F59E0B" />}
               </div>
-              <div style={{ flex: 1, textTransform: 'capitalize', fontWeight: 600 }}>{t}</div>
-              {vehicle === t && <Check size={20} color="#F59E0B" />}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

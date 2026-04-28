@@ -148,6 +148,7 @@ export default function Dashboard() {
   const [activeDispatches, setActiveDispatches] = useState([]);
   const [beneficiaries, setBeneficiaries] = useState([]);
   const [volunteers, setVolunteers] = useState([]);
+  const [mapPanTarget, setMapPanTarget] = useState(null);
   const [supplies, setSupplies] = useState([]);
   const [clusters, setClusters] = useState({ points: [], hotspots: [] });
   const [isIngesting, setIsIngesting] = useState(false);
@@ -169,6 +170,10 @@ export default function Dashboard() {
   const { refreshProjects, switchProject } = useProject();
 
   useEffect(() => {
+    // Reset allocation state so the button doesn't show stale results from a different project
+    setAllocationResult(null);
+    setAllocationAdvice('');
+    setCriticalUnmet([]);
     loadAllData();
   }, [currentProject]);
 
@@ -295,6 +300,11 @@ export default function Dashboard() {
       // Fetch critical unmet missions
       const unmet = await fetchCriticalUnmet(projectId);
       setCriticalUnmet(unmet);
+      
+      // Fetch updated volunteers so Responder Network panel reflects new allocations
+      const updatedVolunteers = await api.fetchVolunteers(projectId);
+      setVolunteers(updatedVolunteers);
+
       // Async: get Pro strategic advice (non-blocking, may rate-limit)
       getStrategicReallocationAdvice(result)
         .then(setAllocationAdvice)
@@ -519,7 +529,7 @@ export default function Dashboard() {
             }}
           >
             <Zap size={14} />
-            {isAllocating ? 'Allocating...' : allocationResult ? `Allocated · ${allocationResult.pass1?.assignments + allocationResult.pass2?.dispatches}` : 'Run Allocation'}
+            {isAllocating ? 'Allocating...' : allocationResult ? `Allocated · ${volunteers.filter(v => v.currentAssignmentId && v.assignmentStatus !== 'unassigned').length}` : 'Run Allocation'}
           </button>
 
           <button 
@@ -552,6 +562,7 @@ export default function Dashboard() {
             clusters={strategicClusters} 
             projectRegions={currentProject?.regions}
             volunteers={volunteers}
+            mapPanTarget={mapPanTarget}
           />
         </div>
       )}
@@ -593,10 +604,13 @@ export default function Dashboard() {
                 criticalUnmet={criticalUnmet}
                 allocationAdvice={allocationAdvice}
                 volunteers={volunteers}
+                mapPanTarget={mapPanTarget}
+                onRefresh={loadAllData}
+                onPanTo={(lat, lng) => setMapPanTarget({ lat, lng })}
               />
             )}
-            {activeTab === 'analysis' && <AnalysisTab incidents={mapPoints} volunteers={volunteers} />}
-            {activeTab === 'ai_radar' && <AIRadarTab clusters={strategicClusters} incidents={mapPoints} />}
+            {activeTab === 'analysis' && <AnalysisTab incidents={incidents} volunteers={volunteers} />}
+            {activeTab === 'ai_radar' && <AIRadarTab clusters={strategicClusters} incidents={incidents} />}
             {activeTab === 'supplies' && <ResourceLogisticsTab project={currentProject} resources={supplies} onUpdateResource={handleUpdateResource} />}
             {activeTab === 'beneficiaries' && <BeneficiariesTab beneficiaries={beneficiaries} onView={(b) => {
               setSelectedBeneficiary(b);
@@ -610,6 +624,12 @@ export default function Dashboard() {
              }}
              copyToClipboard={copyToClipboard}
              copiedId={copiedId}
+             onPanTo={(lat, lng) => {
+               setMapPanTarget({ lat, lng });
+               if (viewMode === 'classic') {
+                 setActiveTab('overview');
+               }
+             }}
            />}
             {activeTab === 'ingestion' && <IngestionTab onIngest={handleIngestion} isIngesting={isIngesting} setIsIngesting={setIsIngesting} />}
           </motion.div>
@@ -687,12 +707,54 @@ export default function Dashboard() {
   );
 }
 
-function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispatches, clusters, onDispatch, allocationEfficiency, viewMode, volunteers, allocationResult, criticalUnmet = [], allocationAdvice }) {
+function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispatches, clusters, onDispatch, allocationEfficiency, viewMode, volunteers, allocationResult, criticalUnmet = [], allocationAdvice, mapPanTarget, onRefresh, onPanTo }) {
   const [selectedMission, setSelectedMission] = useState(null);
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [isDrillingDown, setIsDrillingDown] = useState(false);
+  const [isMissionMenuOpen, setIsMissionMenuOpen] = useState(false);
+  const [sortMode, setSortMode] = useState('PRIORITY'); // PRIORITY, VOLUME, SEVERITY
+  const [showVolunteerPanel, setShowVolunteerPanel] = useState(false);
 
-  const missions = getStrategicMissions(incidents);
+  const missions = useMemo(() => {
+    const raw = getStrategicMissions(incidents);
+    if (sortMode === 'VOLUME') {
+      return [...raw].sort((a, b) => b.count - a.count);
+    }
+    return raw; // Default is sorted by strategic priority
+  }, [incidents, sortMode]);
+
+  const volunteerStats = useMemo(() => {
+    if (!volunteers || volunteers.length === 0) {
+      return { available: 0, total: 0, live: 0, activeForLive: 0, availableVehicles: 0, totalVehicles: 0, capacity: 0 };
+    }
+    
+    // Available (Active) volunteers vs Total
+    const availableVolunteers = volunteers.filter(v => v.status === 'Active');
+    
+    // Live tracking (fresh GPS < 2 hours)
+    const liveTracked = volunteers.filter(v => {
+      if (!v.liveLocation?.updatedAt) return false;
+      const age = (Date.now() - new Date(v.liveLocation.updatedAt)) / 3600000;
+      return age <= 2;
+    });
+
+    const activeForLive = availableVolunteers.length + volunteers.filter(v => v.status === 'Deployed').length;
+
+    // Mobility Units (Vehicles)
+    const vehicles = volunteers.filter(v => v.vehicleType && v.vehicleType !== 'none');
+    const availableVehicles = vehicles.filter(v => v.status === 'Active');
+    const totalCapacity = availableVehicles.reduce((sum, v) => sum + (v.vehicleCapacity || 0), 0);
+
+    return {
+      available: availableVolunteers.length,
+      total: volunteers.length,
+      live: liveTracked.length,
+      activeForLive: activeForLive,
+      availableVehicles: availableVehicles.length,
+      totalVehicles: vehicles.length,
+      capacity: totalCapacity
+    };
+  }, [volunteers]);
 
   // Critical Unmet Alert Panel — surface missions with no coverage
   const renderCriticalUnmetPanel = () => {
@@ -779,13 +841,94 @@ function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispa
     </div>
   );
 
+  const renderVolunteerStats = (isImmersive) => {
+    const livePercentage = volunteerStats.activeForLive > 0 
+      ? Math.round((volunteerStats.live / volunteerStats.activeForLive) * 100) 
+      : 0;
+
+    return (
+      <div style={{ display: 'flex', gap: isImmersive ? '3rem' : '4rem', alignItems: 'center' }}>
+        <div>
+          <div style={{ color: 'var(--text-dim)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '0.25rem' }}>Operational Readiness</div>
+          <div style={{ fontSize: '1.5rem', fontWeight: 500, color: '#fff' }}>
+            {volunteerStats.available} <span style={{ fontSize: '0.875rem', color: 'var(--text-dim)' }}>/ {volunteerStats.total}</span>
+          </div>
+        </div>
+        <div>
+          <div style={{ color: 'var(--text-dim)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '0.25rem' }}>Live Field Visibility</div>
+          <div style={{ fontSize: '1.5rem', fontWeight: 500, color: '#fff' }}>
+            {livePercentage}% <span style={{ fontSize: '0.875rem', color: 'var(--success)' }}>TRACKED</span>
+          </div>
+        </div>
+        <div>
+          <div style={{ color: 'var(--text-dim)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '0.25rem' }}>Mobility Units</div>
+          <div style={{ fontSize: '1.5rem', fontWeight: 500, color: '#fff', display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+            <span>{volunteerStats.availableVehicles} <span style={{ fontSize: '0.875rem', color: 'var(--text-dim)' }}>/ {volunteerStats.totalVehicles}</span></span>
+            {volunteerStats.capacity > 0 && <span style={{ fontSize: '0.625rem', color: 'var(--text-dim)', fontWeight: 600 }}>· {volunteerStats.capacity}kg cap</span>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderPriorityQueue = (isImmersive) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0', height: '100%', overflowX: 'hidden' }}>
       {!selectedMission && !selectedIncident ? (
         <>
           <div className="pane-header" style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '1.25rem 1.5rem', background: isImmersive ? 'rgba(0,0,0,0.2)' : 'transparent', position: 'sticky', top: 0, zIndex: 10 }}>
              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.75rem' }}><Activity size={16} /> STRATEGIC MISSIONS</div>
-             <MoreHorizontal size={16} color="var(--text-dim)" />
+             <div style={{ position: 'relative' }}>
+               <button 
+                 onClick={() => setIsMissionMenuOpen(!isMissionMenuOpen)}
+                 style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
+               >
+                 <MoreHorizontal size={16} />
+               </button>
+               
+               <AnimatePresence>
+                 {isMissionMenuOpen && (
+                   <motion.div
+                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                     animate={{ opacity: 1, y: 0, scale: 1 }}
+                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                     style={{
+                       position: 'absolute', top: '100%', right: 0, marginTop: '0.5rem',
+                       background: '#0a0a0a', border: '1px solid var(--border-strong)',
+                       borderRadius: '8px', padding: '0.5rem', minWidth: '180px',
+                       boxShadow: '0 20px 40px rgba(0,0,0,0.6)', zIndex: 100
+                     }}
+                   >
+                     <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0.5rem 0.75rem', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: '0.25rem' }}>
+                       Mission Controls
+                     </div>
+                     <button 
+                       onClick={() => { onRefresh?.(); setIsMissionMenuOpen(false); }}
+                       style={{ width: '100%', textAlign: 'left', padding: '0.6rem 0.75rem', background: 'transparent', border: 'none', color: '#fff', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                       onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                     >
+                       <Zap size={12} color="var(--success)" /> Recalculate AI
+                     </button>
+                     <button 
+                       onClick={() => { setSortMode('PRIORITY'); setIsMissionMenuOpen(false); }}
+                       style={{ width: '100%', textAlign: 'left', padding: '0.6rem 0.75rem', background: sortMode === 'PRIORITY' ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', color: '#fff', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px' }}
+                       onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                       onMouseLeave={e => e.currentTarget.style.background = sortMode === 'PRIORITY' ? 'rgba(255,255,255,0.08)' : 'transparent'}
+                     >
+                       Sort by Priority
+                     </button>
+                     <button 
+                       onClick={() => { setSortMode('VOLUME'); setIsMissionMenuOpen(false); }}
+                       style={{ width: '100%', textAlign: 'left', padding: '0.6rem 0.75rem', background: sortMode === 'VOLUME' ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', color: '#fff', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px' }}
+                       onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                       onMouseLeave={e => e.currentTarget.style.background = sortMode === 'VOLUME' ? 'rgba(255,255,255,0.08)' : 'transparent'}
+                     >
+                       Sort by Needs Count
+                     </button>
+                   </motion.div>
+                 )}
+               </AnimatePresence>
+             </div>
           </div>
           
           <div className="no-scrollbar" style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', overflowX: 'hidden', flex: 1, padding: isImmersive ? '0 1rem' : '0' }}>
@@ -977,28 +1120,162 @@ function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispa
     </div>
   );
 
+  const [selectedVolId, setSelectedVolId] = useState(null);
+
+  const renderVolunteerPanel = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '1.25rem 1.5rem', background: 'rgba(0,0,0,0.25)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Users size={14} color="var(--success)" />
+          <span style={{ fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: '0.7rem', color: '#fff' }}>Responder Network</span>
+        </div>
+        <span style={{ fontSize: '0.625rem', padding: '0.2rem 0.5rem', borderRadius: '20px', background: 'rgba(16,185,129,0.12)', color: 'var(--success)', fontWeight: 700, letterSpacing: '0.05em', border: '1px solid rgba(16,185,129,0.2)' }}>
+          {volunteerStats.available} ACTIVE
+        </span>
+      </div>
+
+      {/* List */}
+      <div className="no-scrollbar" style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', flex: 1, padding: '0.75rem' }}>
+        {volunteers.map((vol, idx) => {
+          const hasGps = vol.liveLocation?.lat != null;
+          const isSelected = selectedVolId === vol._id;
+          const lat = hasGps ? vol.liveLocation.lat : (vol.locationId?.lat || vol.homeGeo?.lat);
+          const lng = hasGps ? vol.liveLocation.lng : (vol.locationId?.lng || vol.homeGeo?.lng);
+          const canLocate = !!(lat && lng);
+
+          return (
+            <motion.div
+              key={vol._id}
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: idx * 0.04, duration: 0.25, ease: 'easeOut' }}
+              onClick={() => setSelectedVolId(isSelected ? null : vol._id)}
+              style={{
+                padding: '0.875rem 1rem',
+                borderRadius: '10px',
+                marginBottom: '0.375rem',
+                cursor: 'pointer',
+                border: isSelected ? '1px solid rgba(99,102,241,0.35)' : '1px solid transparent',
+                background: isSelected ? 'rgba(99,102,241,0.08)' : 'transparent',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+              onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {/* Status dot */}
+                  <div style={{ width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0, background: vol.status === 'Active' ? 'var(--success)' : vol.status === 'Deployed' ? '#f59e0b' : 'rgba(255,255,255,0.25)', boxShadow: vol.status === 'Active' ? '0 0 6px var(--success)' : 'none' }} />
+                  <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#fff' }}>{vol.name}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {vol.currentAssignmentId && vol.assignmentStatus && vol.assignmentStatus !== 'unassigned' && (
+                    <span style={{ fontSize: '0.6rem', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.06em', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                      ALLOCATED
+                    </span>
+                  )}
+                  <span style={{
+                    fontSize: '0.6rem', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.06em',
+                    background: hasGps ? 'rgba(255,255,255,0.08)' : 'rgba(16,185,129,0.1)',
+                    color: hasGps ? '#fff' : 'var(--success)',
+                    border: hasGps ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(16,185,129,0.2)'
+                  }}>
+                    {hasGps ? '⬤ GPS' : '◎ HUB'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Row 2: Coords */}
+              <div style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: 'var(--text-dim)', paddingLeft: '1rem', marginBottom: canLocate ? '0.6rem' : 0 }}>
+                {hasGps
+                  ? `${parseFloat(lat).toFixed(4)}° N,  ${parseFloat(lng).toFixed(4)}° E`
+                  : 'Estimated Region Base'}
+              </div>
+
+              {/* Row 3: Locate button — visible when selected or has coords */}
+              {canLocate && (
+                <AnimatePresence>
+                  {(isSelected) && (
+                    <motion.button
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.18 }}
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (onPanTo) onPanTo(lat, lng);
+                      }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '0.5rem',
+                        width: '100%', padding: '0.5rem 0.875rem',
+                        background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.35)',
+                        borderRadius: '6px', color: '#a5b4fc', fontSize: '0.75rem', fontWeight: 600,
+                        cursor: 'pointer', letterSpacing: '0.03em', marginTop: '0.25rem'
+                      }}
+                    >
+                      <MapIcon size={12} /> Locate on Map
+                    </motion.button>
+                  )}
+                </AnimatePresence>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   if (viewMode === 'immersive') {
     return (
       <div style={{ position: 'relative', width: '100%', minHeight: 'calc(100vh - 4rem)', pointerEvents: 'none' }}>
-        {/* The Map itself spans full width behind */}
-        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0 }}>
-          <KineticMap 
-            isImmersive={true}
-            incidents={incidents} 
-            selectedIncident={selectedIncident} 
-            activeDispatches={activeDispatches} 
-            clusters={clusters}
-            volunteers={volunteers}
-          />
-        </div>
         
-        {/* Floating Stats */}
-        <div style={{ position: 'absolute', top: '2rem', left: '0', pointerEvents: 'auto', background: 'rgba(25, 25, 25, 0.4)', backdropFilter: 'blur(32px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', padding: '1.25rem 2.5rem', boxShadow: '0 16px 40px rgba(0,0,0,0.6)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.625rem', color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '1rem' }}>
-            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 8px var(--success)' }} />
-            Gemini 2.5 Engine
+        {/* Floating Stats & Toggles Container */}
+        <div style={{ position: 'absolute', top: '2rem', left: '0', display: 'flex', flexDirection: 'column', gap: '1rem', pointerEvents: 'none' }}>
+          
+          <motion.div 
+            style={{ pointerEvents: 'auto', background: 'rgba(25, 25, 25, 0.4)', backdropFilter: 'blur(32px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', padding: '1.25rem 2.5rem', boxShadow: '0 16px 40px rgba(0,0,0,0.6)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.625rem', color: showVolunteerPanel ? 'var(--primary)' : 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '1rem', transition: 'color 0.3s' }}>
+              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: showVolunteerPanel ? 'var(--primary)' : 'var(--success)', boxShadow: showVolunteerPanel ? '0 0 8px var(--primary)' : '0 0 8px var(--success)', transition: 'all 0.3s' }} />
+              {showVolunteerPanel ? 'TACTICAL VIEW' : 'Gemini 2.5 Engine'}
+            </div>
+            
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={showVolunteerPanel ? 'volStats' : 'mainStats'}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.15 }}
+              >
+                {showVolunteerPanel ? renderVolunteerStats(true) : renderStats(true)}
+              </motion.div>
+            </AnimatePresence>
+          </motion.div>
+
+          <div style={{ pointerEvents: 'auto' }}>
+            <motion.button
+              layout
+              onClick={() => { setShowVolunteerPanel(!showVolunteerPanel); setSelectedVolId(null); }}
+              animate={{
+                background: showVolunteerPanel ? 'rgba(99, 102, 241, 0.35)' : 'rgba(15, 15, 15, 0.65)',
+                borderColor: showVolunteerPanel ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.08)',
+                color: showVolunteerPanel ? '#c7d2fe' : 'rgba(255,255,255,0.45)',
+              }}
+              transition={{ duration: 0.25 }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                border: '1px solid', borderRadius: '10px', padding: '0.6rem 1.2rem',
+                fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase',
+                letterSpacing: '0.06em', cursor: 'pointer', backdropFilter: 'blur(12px)',
+                boxShadow: showVolunteerPanel ? '0 0 20px rgba(99,102,241,0.2)' : '0 8px 24px rgba(0,0,0,0.4)'
+              }}
+            >
+              <Users size={13} />
+              {showVolunteerPanel ? 'Exit Volunteer View' : 'Volunteer View'}
+            </motion.button>
           </div>
-          {renderStats(true)}
         </div>
 
         {/* Critical Unmet Alert (immersive — bottom-left floating) */}
@@ -1010,7 +1287,18 @@ function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispa
 
         {/* Floating Queue Sidebar */}
         <div style={{ position: 'absolute', top: '2rem', right: '0', bottom: '2rem', width: '420px', pointerEvents: 'auto', background: 'rgba(25, 25, 25, 0.4)', backdropFilter: 'blur(32px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '-8px 16px 40px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
-          {renderPriorityQueue(true)}
+          <AnimatePresence mode="wait">
+            <motion.div 
+              key={showVolunteerPanel ? 'volunteers' : 'missions'} 
+              initial={{ opacity: 0, x: showVolunteerPanel ? 30 : -30, filter: 'blur(4px)' }} 
+              animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }} 
+              exit={{ opacity: 0, x: showVolunteerPanel ? -30 : 30, filter: 'blur(4px)' }} 
+              transition={{ duration: 0.3, ease: 'easeInOut' }} 
+              style={{ height: '100%', width: '100%' }}
+            >
+              {showVolunteerPanel ? renderVolunteerPanel() : renderPriorityQueue(true)}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
     );
@@ -1038,6 +1326,7 @@ function OverviewTab({ incidents, activeDispatches, setIncidents, setActiveDispa
           activeDispatches={activeDispatches} 
           clusters={clusters}
           volunteers={volunteers}
+          mapPanTarget={mapPanTarget}
         />
       </div>
 
@@ -1419,7 +1708,7 @@ function BeneficiariesTab({ beneficiaries = [], onView }) {
   );
 }
 
-function VolunteersTab({ volunteers = [], onView, copyToClipboard, copiedId }) {
+function VolunteersTab({ volunteers = [], onView, copyToClipboard, copiedId, onPanTo }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -1642,6 +1931,23 @@ function VolunteersTab({ volunteers = [], onView, copyToClipboard, copiedId }) {
                         <span style={{ fontFamily: 'monospace', fontSize: '0.72rem', color: '#10b981', fontWeight: 600 }}>
                           {formatCoords(v.liveLocation.lat, v.liveLocation.lng)}
                         </span>
+                        <button 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            if (onPanTo) onPanTo(v.liveLocation.lat, v.liveLocation.lng); 
+                          }}
+                          style={{
+                            background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)',
+                            borderRadius: '4px', padding: '0.2rem', cursor: 'pointer', display: 'flex',
+                            alignItems: 'center', justifyContent: 'center', color: '#10b981',
+                            transition: 'all 0.2s', marginLeft: '0.25rem'
+                          }}
+                          title="View on Map"
+                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.2)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'rgba(16,185,129,0.1)'}
+                        >
+                          <MapIcon size={12} />
+                        </button>
                       </div>
                       {v.liveLocation.updatedAt && (
                         <span style={{ fontSize: '0.65rem', color: 'var(--text-dim)', paddingLeft: '0.9rem' }}>

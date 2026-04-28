@@ -183,7 +183,9 @@ export default function VolunteerModal({ isOpen, onClose, initialData = null }) 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => {
-                        const isAvailable = initialData.availability?.days?.includes(day);
+                        const dayKey = { 'Mon': 'monday', 'Tue': 'tuesday', 'Wed': 'wednesday', 'Thu': 'thursday', 'Fri': 'friday', 'Sat': 'saturday', 'Sun': 'sunday' }[day];
+                        const dayObj = initialData.availability?.[dayKey] || {};
+                        const isAvailable = dayObj.morning || dayObj.afternoon || dayObj.night;
                         return (
                           <div key={day} style={{ 
                             width: '2rem', height: '2rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700,
@@ -200,7 +202,19 @@ export default function VolunteerModal({ isOpen, onClose, initialData = null }) 
                    <div style={{ padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)' }}>
                      <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Standard Shifts</div>
                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#fff', fontSize: '0.8rem', fontWeight: 500 }}>
-                        <Clock size={14} color="var(--primary)" /> {initialData.availability?.timeSlots?.join(' • ') || 'Flexible'}
+                        <Clock size={14} color="var(--primary)" /> {
+                          (() => {
+                            const avail = initialData.availability || {};
+                            let m=0, a=0, n=0;
+                            Object.values(avail).forEach(d => { if(d?.morning) m++; if(d?.afternoon) a++; if(d?.night) n++; });
+                            const slots = [];
+                            if (m>0) slots.push('Morning');
+                            if (a>0) slots.push('Afternoon');
+                            if (n>0) slots.push('Night');
+                            if (slots.length === 3 || slots.length === 0) return 'Flexible / Mixed';
+                            return slots.join(' • ');
+                          })()
+                        }
                      </div>
                    </div>
 
@@ -268,11 +282,11 @@ export default function VolunteerModal({ isOpen, onClose, initialData = null }) 
                     <div style={{ display: 'flex', gap: '1rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.03)' }}>
                        <div style={{ flex: 1 }}>
                           <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset</div>
-                          <div style={{ fontSize: '0.85rem', color: '#fff', fontWeight: 600 }}>{initialData.logistics?.vehicle}</div>
+                          <div style={{ fontSize: '0.85rem', color: '#fff', fontWeight: 600, textTransform: 'capitalize' }}>{initialData.vehicleType || 'None'}</div>
                        </div>
                        <div style={{ flex: 1 }}>
                           <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Payload</div>
-                          <div style={{ fontSize: '0.85rem', color: '#fff', fontWeight: 600 }}>{initialData.logistics?.supplyCapacity} kg</div>
+                          <div style={{ fontSize: '0.85rem', color: '#fff', fontWeight: 600 }}>{initialData.vehicleCapacity || 0} kg</div>
                        </div>
                     </div>
                   </div>

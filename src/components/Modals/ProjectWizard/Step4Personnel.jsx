@@ -34,15 +34,39 @@ export default function Step4Personnel({ data, update }) {
     let matchedVolunteers = new Set();
 
     // 1. Calculate Resident Base for each region
+    // Priority chain mirrors coordResolver: liveLocation (GPS) → homeGeo → locationId (hub)
     data.regions.forEach((region, rIdx) => {
       const { lat, lng } = region.center;
       const radius = region.radius;
       
       const localResponders = volunteers.filter(v => {
+        // 1. Live GPS — most accurate, prefer if available and recent (within 12h)
+        const ll = v.liveLocation;
+        if (ll?.lat != null && ll?.lng != null) {
+          const ageHours = ll.updatedAt
+            ? (Date.now() - new Date(ll.updatedAt).getTime()) / 3600000
+            : Infinity;
+          if (ageHours <= 12) {
+            const dist = calculateHaversineDistance(lat, lng, ll.lat, ll.lng);
+            const within = dist <= radius;
+            if (within) matchedVolunteers.add(v._id);
+            return within;
+          }
+        }
+
+        // 2. homeGeo — registered home coordinates
+        const hg = v.homeGeo;
+        if (hg?.lat != null && hg?.lng != null) {
+          const dist = calculateHaversineDistance(lat, lng, hg.lat, hg.lng);
+          const within = dist <= radius;
+          if (within) matchedVolunteers.add(v._id);
+          return within;
+        }
+
+        // 3. locationId (admin-assigned hub)
         const vLat = v.locationId?.lat;
         const vLng = v.locationId?.lng;
         if (!vLat || !vLng) return false;
-
         const dist = calculateHaversineDistance(lat, lng, vLat, vLng);
         const within = dist <= radius;
         if (within) matchedVolunteers.add(v._id);

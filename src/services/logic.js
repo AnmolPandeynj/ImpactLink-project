@@ -87,7 +87,7 @@ export const calculateMisallocationScore = (incident) => {
 export const getStrategicMissions = (incidents) => {
   const hubs = {};
   
-  incidents.forEach(inc => {
+  incidents.filter(inc => inc.allocationStatus !== 'saturated').forEach(inc => {
     const loc = inc.location || 'Unknown Area';
     if (!hubs[loc]) {
       hubs[loc] = { 

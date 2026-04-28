@@ -176,8 +176,7 @@ app.post('/api/volunteer/test-login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid mission credentials.' });
     }
 
-    // Ensure a User record exists and is linked
-    let user = await User.findOne({ linkedVolunteerId: volunteer._id });
+    let user = await User.findOne({ linkedVolunteerId: volunteer._id }).populate('linkedVolunteerId');
     if (!user) {
       user = new User({
         uid: `test-vol-${volunteer._id}`,
@@ -188,6 +187,8 @@ app.post('/api/volunteer/test-login', async (req, res) => {
         onboardingComplete: true
       });
       await user.save();
+      // Populate it before returning to frontend
+      user = await User.findById(user._id).populate('linkedVolunteerId');
     }
 
     // Generate a mock JWT (unverified Base64 payload)

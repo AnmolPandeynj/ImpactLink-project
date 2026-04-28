@@ -89,14 +89,29 @@ export default function Step5Roster({ data, update }) {
       });
 
     if (type === 'local') {
-      return list.sort((a, b) => {
-        if (a.isInRange && !b.isInRange) return -1;
-        if (!a.isInRange && b.isInRange) return 1;
-        return (a.distance || 9999) - (b.distance || 9999);
-      });
+      // Resident Base: ONLY show volunteers physically within the region radius
+      return list
+        .filter(v => v.isInRange)
+        .sort((a, b) => (a.distance || 9999) - (b.distance || 9999));
     }
-    
-    return list;
+
+    // Mobile Unit: show volunteers NOT within ANY of the project's regions
+    // (they are travelling in from outside)
+    const allRegionCenters = (data?.regions || []).map(r => r.center);
+    const allRegionRadii = (data?.regions || []).map(r => r.radius);
+
+    return list
+      .filter(v => {
+        // Exclude volunteers already counted as local in ANY region
+        const coords = resolveVolunteerCoords(v);
+        if (!coords) return true; // no coords → can't verify local → treat as mobile
+        return !allRegionCenters.some((c, i) => {
+          const dist = calculateHaversineDistance(c.lat, c.lng, coords.lat, coords.lng);
+          return dist <= allRegionRadii[i];
+        });
+      })
+      .sort((a, b) => (a.distance || 9999) - (b.distance || 9999));
+
   };
 
   const handleAutoDraft = async () => {

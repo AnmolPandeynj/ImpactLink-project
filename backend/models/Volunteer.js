@@ -54,9 +54,11 @@ const volunteerSchema = new mongoose.Schema({
   },
 
   // Current Assignment Lifecycle
+  // NOTE: This stores an Event (_id), NOT a ResourceAllocation document.
+  // The allocation engine assigns volunteers directly to Event IDs.
   currentAssignmentId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'ResourceAllocation',
+    ref: 'Event',
     default: null
   },
   assignmentStatus: {
@@ -85,6 +87,13 @@ const volunteerSchema = new mongoose.Schema({
     default: 'car',
   },
   eta: { type: Number, default: null },
+  performanceScore: { type: Number, default: 85 },  // Used by allocationEngine Pass 2 scoring
+
+  // Home geo coords (alternative to locationId.lat/lng for coordResolver fallback)
+  homeGeo: {
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null }
+  },
   
   // ── Semantic Orchestration — RAG / Vector Search ─────────────────────────
   semanticProfile: { type: String, default: '' }, // Flattened capability bio for embedding

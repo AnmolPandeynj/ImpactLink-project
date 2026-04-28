@@ -17,15 +17,22 @@ const PRO_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 async function callProModel(contents, config = {}) {
   const now = Date.now();
   const timeSinceLastCall = now - _lastProCall;
+  
   if (timeSinceLastCall < PRO_COOLDOWN_MS) {
-    const waitSec = Math.ceil((PRO_COOLDOWN_MS - timeSinceLastCall) / 1000);
-    throw new Error(
-      `Strategic analysis is rate-limited to every 5 minutes (free tier). Next available in ${waitSec}s.`
-    );
+    console.warn(`[Gemini] Pro model rate-limited. Falling back to Flash model.`);
+    const response = await ai.models.generateContent({ model: FLASH_MODEL, contents, ...config });
+    return response;
   }
+  
   _lastProCall = now;
-  const response = await ai.models.generateContent({ model: PRO_MODEL, contents, ...config });
-  return response;
+  try {
+    const response = await ai.models.generateContent({ model: PRO_MODEL, contents, ...config });
+    return response;
+  } catch (err) {
+    console.warn(`[Gemini] Pro model call failed (${err.message || 'Unknown error'}). Falling back to Flash model.`);
+    const response = await ai.models.generateContent({ model: FLASH_MODEL, contents, ...config });
+    return response;
+  }
 }
 
 /**

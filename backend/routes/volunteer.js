@@ -3,6 +3,7 @@ const router = express.Router();
 const User = require('../models/User');
 const Volunteer = require('../models/Volunteer');
 const Project = require('../models/Project');
+const Event = require('../models/Event');
 const MissionHistory = require('../models/MissionHistory');
 const checkRole = require('../middleware/checkRole');
 const { findSemanticMatches } = require('../services/semanticEngine');
@@ -30,14 +31,25 @@ router.post('/users/setup', async (req, res) => {
 
     let linkedVolunteerId = null;
 
-    if (role === 'Volunteer' && volunteerCode) {
-      const vol = await Volunteer.findOne({ volunteerCode });
-      if (!vol) return res.status(404).json({ error: 'Invalid volunteer enrollment code.' });
-      
-      linkedVolunteerId = vol._id;
-      // Single-use code: nullify after successful link
-      vol.volunteerCode = null;
-      await vol.save();
+    if (role === 'Volunteer') {
+      if (volunteerCode) {
+        const vol = await Volunteer.findOne({ volunteerCode });
+        if (!vol) return res.status(404).json({ error: 'Invalid volunteer enrollment code.' });
+        
+        linkedVolunteerId = vol._id;
+        // Single-use code: nullify after successful link
+        vol.volunteerCode = null;
+        await vol.save();
+      } else {
+        // Create a base volunteer profile automatically
+        const newVol = new Volunteer({
+          name: req.user.name || email.split('@')[0],
+          email: email,
+          status: 'Active'
+        });
+        await newVol.save();
+        linkedVolunteerId = newVol._id;
+      }
     }
 
     user = new User({
@@ -78,13 +90,36 @@ router.get('/users/me', async (req, res) => {
  */
 router.get('/volunteer/me', checkRole('Volunteer', 'Administrator'), async (req, res) => {
   try {
-    const vol = await Volunteer.findById(req.impactUser.linkedVolunteerId).populate({
+    let vol = await Volunteer.findById(req.impactUser.linkedVolunteerId)
+      .populate('locationId')
+      .populate({
       path: 'projectIds',
       model: Project // Use the imported model directly
     });
+    
     if (!vol) {
-      console.warn(`[AUTH] Volunteer profile missing for user ${req.impactUser.uid} (Link: ${req.impactUser.linkedVolunteerId})`);
-      return res.status(404).json({ error: `Volunteer profile missing for link ID ${req.impactUser.linkedVolunteerId}` });
+      console.warn(`[AUTH] Volunteer profile missing for user ${req.impactUser.uid} (Link: ${req.impactUser.linkedVolunteerId}). Attempting auto-heal...`);
+      
+      // Auto-heal logic: Try to find a volunteer with matching name or email (e.g. after DB seed)
+      const healName = req.impactUser.displayName || req.impactUser.email?.split('@')[0];
+      vol = await Volunteer.findOne({
+        $or: [
+          { name: healName },
+          { email: req.impactUser.email }
+        ]
+      })
+      .populate('locationId')
+      .populate({ path: 'projectIds', model: Project });
+
+      if (vol) {
+        console.log(`[AUTH] Auto-healed volunteer link for ${healName} to ${vol._id}`);
+        await User.updateOne(
+          { uid: req.impactUser.uid }, 
+          { $set: { linkedVolunteerId: vol._id } }
+        );
+      } else {
+        return res.status(404).json({ error: `Volunteer profile missing for link ID ${req.impactUser.linkedVolunteerId}` });
+      }
     }
     
     console.log(`[VOLUNTEER] Found ${vol.projectIds?.length} projects for ${vol.name}. First project name: ${vol.projectIds?.[0]?.name}`);
@@ -116,8 +151,24 @@ router.patch('/volunteer/me', checkRole('Volunteer'), async (req, res) => {
       if (allowedUpdates.includes(key)) updates[key] = req.body[key];
     });
 
+    let volId = req.impactUser.linkedVolunteerId;
+
+    // Auto-heal missing volunteer profiles for users who slipped through without one
+    if (!volId) {
+      const newVol = new Volunteer({
+        name: req.impactUser.displayName || req.impactUser.email?.split('@')[0] || 'Unknown',
+        email: req.impactUser.email || 'unknown@impactlink.dev',
+        status: 'Active'
+      });
+      await newVol.save();
+      
+      req.impactUser.linkedVolunteerId = newVol._id;
+      await req.impactUser.save();
+      volId = newVol._id;
+    }
+
     const vol = await Volunteer.findByIdAndUpdate(
-      req.impactUser.linkedVolunteerId,
+      volId,
       { $set: updates },
       { new: true, runValidators: true }
     );
@@ -149,8 +200,24 @@ router.post('/volunteer/me/location', checkRole('Volunteer'), async (req, res) =
     }
 
     const now = new Date();
+    let volId = req.impactUser.linkedVolunteerId;
+
+    // Auto-heal missing volunteer profiles for users who slipped through without one
+    if (!volId) {
+      const newVol = new Volunteer({
+        name: req.impactUser.displayName || req.impactUser.email?.split('@')[0] || 'Unknown',
+        email: req.impactUser.email || 'unknown@impactlink.dev',
+        status: 'Active'
+      });
+      await newVol.save();
+      
+      req.impactUser.linkedVolunteerId = newVol._id;
+      await req.impactUser.save();
+      volId = newVol._id;
+    }
+
     const vol = await Volunteer.findByIdAndUpdate(
-      req.impactUser.linkedVolunteerId,
+      volId,
       {
         $set: {
           'liveLocation.lat':       parseFloat(lat),
@@ -255,6 +322,71 @@ router.post('/allocate/semantic', checkRole('Administrator'), async (req, res) =
   } catch (err) {
     console.error('Semantic Allocation API Failure:', err);
     res.status(500).json({ error: 'Semantic allocation failed: ' + err.message });
+  }
+});
+
+// ─── VOLUNTEER MISSION NAVIGATION ────────────────────────────────────────
+
+/**
+ * GET /api/volunteer/me/mission
+ * Returns the volunteer's current active mission (Event) with full destination
+ * coordinates and the volunteer's own position data for navigation rendering.
+ *
+ * Response includes a GPS+hub fallback chain so the frontend always has an
+ * origin point for the Directions API even if liveLocation is null.
+ */
+router.get('/volunteer/me/mission', checkRole('Volunteer', 'Administrator'), async (req, res) => {
+  try {
+    const vol = await Volunteer.findById(req.impactUser.linkedVolunteerId)
+      .populate('locationId')
+      .lean();
+
+    if (!vol) {
+      return res.status(404).json({ error: 'Volunteer profile not found.' });
+    }
+
+    if (!vol.currentAssignmentId) {
+      return res.json({ mission: null, volunteer: { status: vol.assignmentStatus, liveLocation: vol.liveLocation, hubLocation: null } });
+    }
+
+    const mission = await Event.findById(vol.currentAssignmentId)
+      .populate('locationId')
+      .lean();
+
+    if (!mission) {
+      return res.json({ mission: null, volunteer: { status: vol.assignmentStatus, liveLocation: vol.liveLocation, hubLocation: null } });
+    }
+
+    // Build hub fallback coordinates from populated locationId
+    const hubLocation = (vol.locationId?.lat != null && vol.locationId?.lng != null)
+      ? { lat: vol.locationId.lat, lng: vol.locationId.lng, name: vol.locationId.name }
+      : null;
+
+    res.json({
+      mission: {
+        _id: mission._id,
+        eventType: mission.eventType,
+        severity: mission.severity,
+        resourceGap: mission.resourceGap,
+        timeSensitivity: mission.timeSensitivity,
+        lat: mission.lat,
+        lng: mission.lng,
+        locationName: mission.locationId?.name || 'Unknown Sector',
+        allocationStatus: mission.allocationStatus,
+        saturationRate: mission.saturationRate,
+        notes: mission.notes,
+        eventTime: mission.eventTime,
+      },
+      volunteer: {
+        status: vol.assignmentStatus,
+        currentLoad: vol.currentLoad,
+        liveLocation: vol.liveLocation ?? null,
+        hubLocation,
+      },
+    });
+  } catch (err) {
+    console.error('[MissionNav] GET /volunteer/me/mission failed:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
